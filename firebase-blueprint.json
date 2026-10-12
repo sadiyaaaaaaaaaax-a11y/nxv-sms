@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile and credits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["user", "agent", "admin"] },
+        "balance": { "type": "number" },
+        "totalNumbers": { "type": "number" },
+        "totalOtps": { "type": "number" },
+        "isBanned": { "type": "boolean" },
+        "banReason": { "type": "string", "maxLength": 500 },
+        "agentEmail": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "perOtpRate": { "type": "number" },
+        "agentCommissionEarned": { "type": "number" },
+        "apiKey": { "type": "string", "maxLength": 256 },
+        "apiAccessStatus": { "type": "string", "enum": ["none", "pending", "approved", "rejected"] },
+        "apiHits": { "type": "number" },
+        "apiRequestReason": { "type": "string", "maxLength": 1000 },
+        "apiRequestDate": { "type": "string" },
+        "rejectionReason": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "email", "displayName", "role", "balance", "createdAt", "updatedAt"]
+    },
+    "SmsOrder": {
+      "title": "SmsOrder",
+      "description": "Virtual phone number order and received OTP",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "phoneNumber": { "type": "string", "maxLength": 32 },
+        "service": { "type": "string", "maxLength": 64 },
+        "country": { "type": "string", "maxLength": 64 },
+        "range": { "type": "string", "maxLength": 64 },
+        "price": { "type": "number" },
+        "status": { "type": "string", "enum": ["WAITING", "RECEIVED", "EXPIRED", "CANCELLED"] },
+        "otpCode": { "type": "string", "maxLength": 32 },
+        "fullMessage": { "type": "string", "maxLength": 500 },
+        "zenexId": { "type": "string", "maxLength": 128 },
+        "orderRefId": { "type": "string", "maxLength": 128 },
+        "expiresAt": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "phoneNumber", "service", "status", "createdAt", "updatedAt"]
+    },
+    "BroadcastLog": {
+      "title": "BroadcastLog",
+      "description": "Global announcements and SMS console notifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 128 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "type": { "type": "string", "enum": ["INFO", "ALERT", "UPDATE", "RANGE_ADDED"] },
+        "createdAt": { "type": "string" },
+        "authorId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "title", "message", "type", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "UserProfile" },
+      "description": "User profile with credits and role"
+    },
+    "/users/{userId}/smsOrders/{orderId}": {
+      "schema": { "$ref": "SmsOrder" },
+      "description": "User SMS orders and OTP history"
+    },
+    "/broadcastLogs/{logId}": {
+      "schema": { "$ref": "BroadcastLog" },
+      "description": "System broadcast feed and console updates"
+    }
+  }
+}

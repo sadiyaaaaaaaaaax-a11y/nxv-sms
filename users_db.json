@@ -1,0 +1,40 @@
+[
+  {
+    "id": "UPLeyU5P7af6xXbWNSSKxXM8R4W2",
+    "email": "mnshiddik11@gmail.com",
+    "displayName": "admin",
+    "role": "admin",
+    "balance": 100,
+    "totalNumbers": 0,
+    "totalOtps": 0,
+    "isBanned": false,
+    "createdAt": "2026-10-12T16:16:43.359Z",
+    "updatedAt": "2026-10-12T16:16:47.851Z",
+    "agentEmail": "",
+    "status": "approved",
+    "perOtpRate": 0.3,
+    "rejectionReason": ""
+  },
+  {
+    "id": "n25GMANEFEbIBuvkrMTclCWXTR52",
+    "email": "mnshiddikx11@gmail.com",
+    "displayName": "nshiddik",
+    "role": "user",
+    "balance": 0,
+    "totalNumbers": 1,
+    "totalOtps": 0,
+    "isBanned": false,
+    "banReason": "",
+    "agentEmail": "",
+    "status": "approved",
+    "perOtpRate": 0.3,
+    "rejectionReason": "",
+    "createdAt": "2026-10-12T16:40:22.073Z",
+    "updatedAt": "2026-10-12T16:59:55.759Z",
+    "apiAccessStatus": "approved",
+    "apiRequestReason": "Telegram Bot & SMS Integration",
+    "apiRequestDate": "2026-10-12T16:16:18.723Z",
+    "apiKey": "nxv_live_mv5ggbjo_49gjutlc4p0inxi7",
+    "apiHits": 9
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "name": "NXV SMS - Virtual SMS & OTP Verification Panel",
+  "description": "High-performance SMS receiver & OTP verification platform with real-time OTP tracking, number ranges, and history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

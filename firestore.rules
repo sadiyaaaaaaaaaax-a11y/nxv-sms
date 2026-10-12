@@ -1,0 +1,166 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email != null && (
+          request.auth.token.email == 'mnshiddik11@gmail.com' ||
+          request.auth.token.email == 'Mnshiddik11@gmail.com' ||
+          request.auth.token.email.matches('(?i)mnshiddik11@gmail.com')
+        )) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation for UserProfile
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'email', 'displayName', 'role', 'balance', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'email', 'displayName', 'role', 'balance', 'totalNumbers', 'totalOtps', 'isBanned', 'banReason', 'agentEmail', 'status', 'perOtpRate', 'agentCommissionEarned', 'apiKey', 'apiAccessStatus', 'apiHits', 'apiRequestReason', 'apiRequestDate', 'rejectionReason', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.email is string && data.email.size() <= 128
+        && data.displayName is string && data.displayName.size() <= 100
+        && (data.role == 'user' || data.role == 'agent' || data.role == 'admin')
+        && data.balance is number
+        && (!('totalNumbers' in data) || data.totalNumbers is number)
+        && (!('totalOtps' in data) || data.totalOtps is number)
+        && (!('isBanned' in data) || data.isBanned is bool)
+        && (!('banReason' in data) || (data.banReason is string && data.banReason.size() <= 500))
+        && (!('agentEmail' in data) || (data.agentEmail is string && data.agentEmail.size() <= 128))
+        && (!('status' in data) || (data.status is string && (data.status == 'pending' || data.status == 'approved' || data.status == 'rejected')))
+        && (!('perOtpRate' in data) || data.perOtpRate is number)
+        && (!('agentCommissionEarned' in data) || data.agentCommissionEarned is number)
+        && (!('apiKey' in data) || (data.apiKey is string && data.apiKey.size() <= 256))
+        && (!('apiAccessStatus' in data) || (data.apiAccessStatus is string && (data.apiAccessStatus == 'none' || data.apiAccessStatus == 'pending' || data.apiAccessStatus == 'approved' || data.apiAccessStatus == 'rejected')))
+        && (!('apiHits' in data) || data.apiHits is number)
+        && (!('apiRequestReason' in data) || (data.apiRequestReason is string && data.apiRequestReason.size() <= 1000))
+        && (!('apiRequestDate' in data) || (data.apiRequestDate is string && data.apiRequestDate.size() <= 128))
+        && (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 500))
+        && data.createdAt is string
+        && data.updatedAt is string;
+    }
+
+    // Validation for SmsOrder
+    function isValidSmsOrder(data) {
+      return data.keys().hasAll(['id', 'userId', 'phoneNumber', 'service', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'phoneNumber', 'service', 'country', 'range', 'price', 'status', 'otpCode', 'fullMessage', 'zenexId', 'orderRefId', 'expiresAt', 'source', 'credited', 'earnedAmount', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.phoneNumber is string && data.phoneNumber.size() <= 32
+        && data['service'] is string && data['service'].size() <= 64
+        && (data.status == 'WAITING' || data.status == 'RECEIVED' || data.status == 'EXPIRED' || data.status == 'CANCELLED')
+        && (!('otpCode' in data) || (data.otpCode is string && data.otpCode.size() <= 64))
+        && (!('fullMessage' in data) || (data.fullMessage is string && data.fullMessage.size() <= 1000))
+        && (!('range' in data) || (data.range is string && data.range.size() <= 64))
+        && (!('country' in data) || (data.country is string && data.country.size() <= 64))
+        && (!('expiresAt' in data) || (data.expiresAt is string && data.expiresAt.size() <= 64))
+        && (!('orderRefId' in data) || (data.orderRefId is string && data.orderRefId.size() <= 128))
+        && (!('zenexId' in data) || (data.zenexId is string && data.zenexId.size() <= 128))
+        && (!('price' in data) || data.price is number)
+        && (!('source' in data) || data.source is string)
+        && (!('credited' in data) || data.credited is bool)
+        && (!('earnedAmount' in data) || data.earnedAmount is number)
+        && data.createdAt is string
+        && data.updatedAt is string;
+    }
+
+    // Validation for BroadcastLog
+    function isValidBroadcastLog(data) {
+      return data.keys().hasAll(['id', 'title', 'message', 'type', 'createdAt'])
+        && data.keys().hasOnly(['id', 'title', 'message', 'type', 'createdAt', 'authorId'])
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 128
+        && data.message is string && data.message.size() <= 1000
+        && (data.type == 'INFO' || data.type == 'ALERT' || data.type == 'UPDATE' || data.type == 'RANGE_ADDED')
+        && data.createdAt is string;
+    }
+
+    // Test connection document
+    match /test/connection {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // User collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin() || isSignedIn();
+      allow list: if isSignedIn(); // Allow registered admins/users to view users list
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && (incoming().role == 'user' || isAdmin());
+      allow update: if (isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().role == existing().role
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'balance', 'totalNumbers', 'totalOtps', 'updatedAt', 'agentEmail', 'apiKey', 'apiAccessStatus', 'apiHits', 'apiRequestReason', 'apiRequestDate', 'rejectionReason']))
+        || (isAdmin() && isValidUserProfile(incoming()))
+        || (isSignedIn()
+            && isValidUserProfile(incoming())
+            && incoming().role == existing().role
+            && request.auth.token.email != null
+            && ('agentEmail' in existing())
+            && (request.auth.token.email == existing().agentEmail || request.auth.token.email.matches('(?i)' + existing().agentEmail))
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'perOtpRate', 'rejectionReason', 'updatedAt']));
+      allow delete: if isAdmin();
+
+      // User's SMS orders subcollection
+      match /smsOrders/{orderId} {
+        allow get: if isOwner(userId) && isValidId(orderId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(orderId)
+          && incoming().userId == request.auth.uid
+          && isValidSmsOrder(incoming());
+        allow update: if isOwner(userId)
+          && isValidId(orderId)
+          && incoming().userId == existing().userId
+          && isValidSmsOrder(incoming())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'otpCode', 'fullMessage', 'updatedAt', 'price']);
+        allow delete: if isOwner(userId) && isValidId(orderId);
+      }
+    }
+
+    // Global broadcast logs
+    match /broadcastLogs/{logId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isAdmin() && isValidId(logId) && (request.method == 'delete' || isValidBroadcastLog(incoming()));
+    }
+
+    // System settings & announcements
+    match /settings/{settingId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}
