@@ -140,19 +140,50 @@ export const apiRouter = Router();
 
 // 1. User requests API access
 apiRouter.post('/api/users/api-request', (req: Request, res: Response) => {
-  const { userId, reason } = req.body;
+  const { userId, reason, email, displayName } = req.body;
   if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
 
   const cleanId = (userId || '').trim().toLowerCase();
+  const cleanEmail = (email || '').trim().toLowerCase();
   const users = readUsersFromFile();
-  const idx = users.findIndex((u) => u.id === userId || (u.email && u.email.toLowerCase() === cleanId));
-  if (idx === -1) return res.status(404).json({ success: false, message: 'User not found' });
+  let idx = users.findIndex(
+    (u) =>
+      u.id === userId ||
+      (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
+      (u.email && u.email.toLowerCase() === cleanId)
+  );
 
   const now = new Date().toISOString();
-  users[idx].apiAccessStatus = 'pending';
-  users[idx].apiRequestReason = reason || 'Telegram Bot & API Integration';
-  users[idx].apiRequestDate = now;
-  users[idx].updatedAt = now;
+  if (idx === -1) {
+    const newUser: any = {
+      id: userId,
+      email: cleanEmail || (cleanId.includes('@') ? cleanId : `${userId}@user.nxvsms.com`),
+      displayName: displayName || (cleanEmail ? cleanEmail.split('@')[0] : 'User'),
+      role: 'user',
+      balance: 0,
+      totalNumbers: 0,
+      totalOtps: 0,
+      isBanned: false,
+      status: 'approved',
+      perOtpRate: 0.30,
+      apiAccessStatus: 'pending',
+      apiRequestReason: reason || 'Telegram Bot & API Integration',
+      apiRequestDate: now,
+      apiKey: '',
+      apiHits: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    users.push(newUser);
+    idx = users.length - 1;
+  } else {
+    users[idx].apiAccessStatus = 'pending';
+    users[idx].apiRequestReason = reason || 'Telegram Bot & API Integration';
+    users[idx].apiRequestDate = now;
+    users[idx].updatedAt = now;
+    if (cleanEmail && !users[idx].email) users[idx].email = cleanEmail;
+    if (displayName && !users[idx].displayName) users[idx].displayName = displayName;
+  }
 
   saveUsersToFile(users);
   return res.json({
@@ -164,22 +195,51 @@ apiRouter.post('/api/users/api-request', (req: Request, res: Response) => {
 
 // 2. Admin approves API access (generates unique API Key)
 apiRouter.post('/api/users/api-approve', (req: Request, res: Response) => {
-  const { userId } = req.body;
+  const { userId, email, displayName } = req.body;
   if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
 
   const cleanId = (userId || '').trim().toLowerCase();
+  const cleanEmail = (email || '').trim().toLowerCase();
   const users = readUsersFromFile();
-  const idx = users.findIndex((u) => u.id === userId || (u.email && u.email.toLowerCase() === cleanId));
-  if (idx === -1) return res.status(404).json({ success: false, message: 'User not found' });
+  let idx = users.findIndex(
+    (u) =>
+      u.id === userId ||
+      (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
+      (u.email && u.email.toLowerCase() === cleanId)
+  );
 
   const now = new Date().toISOString();
   const randomToken = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
   const newApiKey = `nxv_live_${Date.now().toString(36)}_${randomToken}`;
 
-  users[idx].apiAccessStatus = 'approved';
-  users[idx].apiKey = newApiKey;
-  users[idx].apiHits = users[idx].apiHits || 0;
-  users[idx].updatedAt = now;
+  if (idx === -1) {
+    const newUser: any = {
+      id: userId,
+      email: cleanEmail || (cleanId.includes('@') ? cleanId : `${userId}@user.nxvsms.com`),
+      displayName: displayName || (cleanEmail ? cleanEmail.split('@')[0] : 'User'),
+      role: 'user',
+      balance: 0,
+      totalNumbers: 0,
+      totalOtps: 0,
+      isBanned: false,
+      status: 'approved',
+      perOtpRate: 0.30,
+      apiAccessStatus: 'approved',
+      apiKey: newApiKey,
+      apiHits: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    users.push(newUser);
+    idx = users.length - 1;
+  } else {
+    users[idx].apiAccessStatus = 'approved';
+    users[idx].apiKey = newApiKey;
+    users[idx].apiHits = users[idx].apiHits || 0;
+    users[idx].updatedAt = now;
+    if (cleanEmail && !users[idx].email) users[idx].email = cleanEmail;
+    if (displayName && !users[idx].displayName) users[idx].displayName = displayName;
+  }
 
   saveUsersToFile(users);
   return res.json({
@@ -192,18 +252,46 @@ apiRouter.post('/api/users/api-approve', (req: Request, res: Response) => {
 
 // 3. Admin rejects API access
 apiRouter.post('/api/users/api-reject', (req: Request, res: Response) => {
-  const { userId, reason } = req.body;
+  const { userId, reason, email, displayName } = req.body;
   if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
 
   const cleanId = (userId || '').trim().toLowerCase();
+  const cleanEmail = (email || '').trim().toLowerCase();
   const users = readUsersFromFile();
-  const idx = users.findIndex((u) => u.id === userId || (u.email && u.email.toLowerCase() === cleanId));
-  if (idx === -1) return res.status(404).json({ success: false, message: 'User not found' });
+  let idx = users.findIndex(
+    (u) =>
+      u.id === userId ||
+      (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
+      (u.email && u.email.toLowerCase() === cleanId)
+  );
 
   const now = new Date().toISOString();
-  users[idx].apiAccessStatus = 'rejected';
-  users[idx].rejectionReason = reason || 'Admin rejected API request';
-  users[idx].updatedAt = now;
+  if (idx === -1) {
+    const newUser: any = {
+      id: userId,
+      email: cleanEmail || (cleanId.includes('@') ? cleanId : `${userId}@user.nxvsms.com`),
+      displayName: displayName || (cleanEmail ? cleanEmail.split('@')[0] : 'User'),
+      role: 'user',
+      balance: 0,
+      totalNumbers: 0,
+      totalOtps: 0,
+      isBanned: false,
+      status: 'approved',
+      perOtpRate: 0.30,
+      apiAccessStatus: 'rejected',
+      rejectionReason: reason || 'Admin rejected API request',
+      apiKey: '',
+      apiHits: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    users.push(newUser);
+    idx = users.length - 1;
+  } else {
+    users[idx].apiAccessStatus = 'rejected';
+    users[idx].rejectionReason = reason || 'Admin rejected API request';
+    users[idx].updatedAt = now;
+  }
 
   saveUsersToFile(users);
   return res.json({
@@ -215,47 +303,82 @@ apiRouter.post('/api/users/api-reject', (req: Request, res: Response) => {
 
 // 4. Admin revokes API access
 apiRouter.post('/api/users/api-revoke', (req: Request, res: Response) => {
-  const { userId } = req.body;
+  const { userId, email, displayName } = req.body;
   if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
 
   const cleanId = (userId || '').trim().toLowerCase();
+  const cleanEmail = (email || '').trim().toLowerCase();
   const users = readUsersFromFile();
-  const idx = users.findIndex((u) => u.id === userId || (u.email && u.email.toLowerCase() === cleanId));
-  if (idx === -1) return res.status(404).json({ success: false, message: 'User not found' });
+  let idx = users.findIndex(
+    (u) =>
+      u.id === userId ||
+      (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
+      (u.email && u.email.toLowerCase() === cleanId)
+  );
 
   const now = new Date().toISOString();
-  users[idx].apiAccessStatus = 'none';
-  users[idx].apiKey = '';
-  users[idx].updatedAt = now;
+  if (idx !== -1) {
+    users[idx].apiAccessStatus = 'none';
+    users[idx].apiKey = '';
+    users[idx].updatedAt = now;
+    saveUsersToFile(users);
+    return res.json({
+      success: true,
+      message: 'API এক্সেস নিষ্ক্রিয় (Revoke) করা হয়েছে',
+      user: users[idx],
+    });
+  }
 
-  saveUsersToFile(users);
   return res.json({
     success: true,
     message: 'API এক্সেস নিষ্ক্রিয় (Revoke) করা হয়েছে',
-    user: users[idx],
   });
 });
 
 // 5. User or Admin regenerates API Key
 apiRouter.post('/api/users/api-regenerate', (req: Request, res: Response) => {
-  const { userId } = req.body;
+  const { userId, email, displayName } = req.body;
   if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
 
   const cleanId = (userId || '').trim().toLowerCase();
+  const cleanEmail = (email || '').trim().toLowerCase();
   const users = readUsersFromFile();
-  const idx = users.findIndex((u) => u.id === userId || (u.email && u.email.toLowerCase() === cleanId));
-  if (idx === -1) return res.status(404).json({ success: false, message: 'User not found' });
-
-  if (users[idx].apiAccessStatus !== 'approved') {
-    return res.status(400).json({ success: false, message: 'API access not approved for this user' });
-  }
+  let idx = users.findIndex(
+    (u) =>
+      u.id === userId ||
+      (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
+      (u.email && u.email.toLowerCase() === cleanId)
+  );
 
   const now = new Date().toISOString();
   const randomToken = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
   const newApiKey = `nxv_live_${Date.now().toString(36)}_${randomToken}`;
 
-  users[idx].apiKey = newApiKey;
-  users[idx].updatedAt = now;
+  if (idx === -1) {
+    const newUser: any = {
+      id: userId,
+      email: cleanEmail || (cleanId.includes('@') ? cleanId : `${userId}@user.nxvsms.com`),
+      displayName: displayName || (cleanEmail ? cleanEmail.split('@')[0] : 'User'),
+      role: 'user',
+      balance: 0,
+      totalNumbers: 0,
+      totalOtps: 0,
+      isBanned: false,
+      status: 'approved',
+      perOtpRate: 0.30,
+      apiAccessStatus: 'approved',
+      apiKey: newApiKey,
+      apiHits: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    users.push(newUser);
+    idx = users.length - 1;
+  } else {
+    users[idx].apiKey = newApiKey;
+    users[idx].apiAccessStatus = 'approved';
+    users[idx].updatedAt = now;
+  }
 
   saveUsersToFile(users);
   return res.json({
