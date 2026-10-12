@@ -83,7 +83,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     if (!userProfile?.id) return;
     setIsSubmittingRequest(true);
     try {
-      const res = await requestApiAccess(userProfile.id, requestReason);
+      const res = await requestApiAccess(userProfile.id, requestReason, userProfile);
       if (res.success) {
         if (onUpdateProfile && res.user) {
           onUpdateProfile(res.user);
