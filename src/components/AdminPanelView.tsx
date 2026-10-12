@@ -465,12 +465,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   const handleApproveApiUser = async (u: UserProfile) => {
     setApiActionLoading(u.id);
     try {
-      const res = await approveApiAccess(u.id);
+      const res = await approveApiAccess(u.id, u);
       if (res.success && res.apiKey) {
         setUsers((prev) =>
           prev.map((item) =>
             item.id === u.id
-              ? { ...item, apiAccessStatus: 'approved', apiKey: res.apiKey }
+              ? { ...item, apiAccessStatus: 'approved', apiKey: res.apiKey, rejectionReason: '' }
               : item
           )
         );
@@ -491,7 +491,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     if (reason === null) return;
     setApiActionLoading(u.id);
     try {
-      const res = await rejectApiAccess(u.id, reason);
+      const res = await rejectApiAccess(u.id, reason, u);
       if (res.success) {
         setUsers((prev) =>
           prev.map((item) =>
@@ -516,7 +516,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     if (!window.confirm(`আপনি কি নিশ্চিত ইউজার '${u.displayName}' এর API Key নিষ্ক্রিয় করতে চান?`)) return;
     setApiActionLoading(u.id);
     try {
-      const res = await revokeApiAccess(u.id);
+      const res = await revokeApiAccess(u.id, u);
       if (res.success) {
         setUsers((prev) =>
           prev.map((item) =>
@@ -539,11 +539,11 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     if (!window.confirm(`ইউজার '${u.displayName}' এর জন্য নতুন API Key তৈরি করতে চান? পূর্বের Key অকার্যকর হয়ে যাবে।`)) return;
     setApiActionLoading(u.id);
     try {
-      const res = await regenerateApiKey(u.id);
+      const res = await regenerateApiKey(u.id, u);
       if (res.success && res.apiKey) {
         setUsers((prev) =>
           prev.map((item) =>
-            item.id === u.id ? { ...item, apiKey: res.apiKey } : item
+            item.id === u.id ? { ...item, apiKey: res.apiKey, apiAccessStatus: 'approved' } : item
           )
         );
         showNotification(`ইউজার '${u.displayName}' এর জন্য নতুন API Key তৈরি হয়েছে!`);
