@@ -115,7 +115,7 @@ service cloud.firestore {
       allow get: if isOwner(userId) || isAdmin() || isSignedIn();
       allow list: if isSignedIn(); // Allow registered admins/users to view users list
       allow create: if isSignedIn()
-        && request.auth.uid == userId
+        && (request.auth.uid == userId || isAdmin())
         && isValidId(userId)
         && isValidUserProfile(incoming())
         && (incoming().role == 'user' || isAdmin());
