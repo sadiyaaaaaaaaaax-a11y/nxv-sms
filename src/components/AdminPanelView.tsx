@@ -44,6 +44,7 @@ import {
   createBroadcastAnnouncement,
   createUserRecord,
   subscribeToAllUsers,
+  syncAgentsToBackend,
   updateUserApproval,
   fetchUserWithdrawals,
   handleWithdrawalAdminAction,
@@ -132,6 +133,21 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       const hasCurrent = currentUser?.id && list.some((u) => u.id === currentUser.id);
       const finalUsers = hasCurrent || !currentUser?.id ? list : [currentUser, ...list];
       setUsers(finalUsers);
+
+      // Auto-sync agents to backend so new agents are immediately recognized by registration validation
+      const agentsOnly = finalUsers.filter(
+        (u) => u.role === 'agent' || u.role === 'admin' || u.email?.toLowerCase() === 'mnshiddik11@gmail.com'
+      );
+      if (agentsOnly.length > 0) {
+        syncAgentsToBackend(
+          agentsOnly.map((a) => ({
+            id: a.id,
+            email: a.email,
+            displayName: a.displayName,
+            role: a.role,
+          }))
+        ).catch(() => {});
+      }
     } catch (err: any) {
       console.error('Error loading users:', err);
       setUsers(currentUser ? [currentUser] : []);
@@ -312,7 +328,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     }
 
     try {
-      await updateUserRole(target.id, selectedNewRole);
+      await updateUserRole(target.id, selectedNewRole, target.email, target.displayName);
       setUsers((prev) =>
         prev.map((u) => (u.id === target.id ? { ...u, role: selectedNewRole } : u))
       );
