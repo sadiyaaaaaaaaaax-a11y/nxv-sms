@@ -184,7 +184,8 @@ export async function fetchOrCreateUserProfile(
     totalOtps: 0,
     isBanned: false,
     agentEmail: cleanAgent,
-    status: isAdmin ? 'approved' : (cleanAgent ? 'pending' : 'approved'),
+    // CRITICAL: ONLY master admin is auto-approved. Every other user MUST be pending until approved!
+    status: isAdmin ? 'approved' : 'pending',
     perOtpRate: 0.30,
     rejectionReason: '',
     createdAt: now,
@@ -202,10 +203,14 @@ export async function fetchOrCreateUserProfile(
         data.status = 'approved';
         await setDoc(userRef, { ...data, role: 'admin', status: 'approved', updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
       }
+      // Guarantee any non-admin without status has 'pending'
+      if (!isAdmin && !data.status) {
+        data.status = 'pending';
+      }
       // If user supplied an agent on subsequent login but didn't have one before
       if (cleanAgent && !data.agentEmail) {
         data.agentEmail = cleanAgent;
-        if (!data.status || data.status === 'approved') {
+        if (!isAdmin) {
           data.status = 'pending';
         }
         await setDoc(userRef, { agentEmail: cleanAgent, status: data.status, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
@@ -380,7 +385,9 @@ export async function toggleUserBan(
 // Admin API: Change Role (user | agent | admin)
 export async function updateUserRole(
   userId: string,
-  newRole: UserRole
+  newRole: UserRole,
+  userEmail?: string,
+  displayName?: string
 ): Promise<boolean> {
   try {
     const userRef = doc(db, 'users', userId);
@@ -397,12 +404,27 @@ export async function updateUserRole(
     await fetch('/api/users/role', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, role: newRole }),
+      body: JSON.stringify({ userId, userEmail, displayName, role: newRole }),
     });
     return true;
   } catch (err) {
     console.error('Backend update role error:', err);
     return true;
+  }
+}
+
+// Bulk sync agents to backend
+export async function syncAgentsToBackend(
+  agents: Array<{ id?: string; email: string; displayName?: string; role?: string }>
+): Promise<void> {
+  try {
+    await fetch('/api/agents/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agents }),
+    });
+  } catch (err) {
+    console.warn('Failed to sync agents to backend:', err);
   }
 }
 
@@ -449,7 +471,7 @@ export async function createUserRecord(params: {
     totalOtps: 0,
     isBanned: false,
     agentEmail: cleanAgent,
-    status: cleanEmail === 'mnshiddik11@gmail.com' ? 'approved' : (params.status || (cleanAgent ? 'pending' : 'approved')),
+    status: cleanEmail === 'mnshiddik11@gmail.com' || params.role === 'agent' ? 'approved' : (params.status || 'pending'),
     perOtpRate: typeof params.perOtpRate === 'number' ? Math.min(0.60, Math.max(0.30, params.perOtpRate)) : 0.30,
     createdAt: now,
     updatedAt: now,
@@ -638,6 +660,91 @@ export async function fetchAgentsList(): Promise<{ id: string; email: string; di
   } catch {}
   return [{ id: 'admin', email: 'mnshiddik11@gmail.com', displayName: 'Master Admin' }];
 }
+
+// Validate if an email belongs to an active registered Agent or Admin
+export async function validateAgentEmail(
+  agentEmail: string
+): Promise<{ valid: boolean; message?: string; agent?: { id?: string; email: string; displayName: string; role?: string } }> {
+  const clean = agentEmail.trim().toLowerCase();
+  if (!clean) {
+    return { valid: false, message: 'এজেন্ট ইমেইল প্রদান করুন' };
+  }
+
+  // Master Admin is always an authorized agent
+  if (clean === 'mnshiddik11@gmail.com' || clean === 'mnshiddik11') {
+    return {
+      valid: true,
+      agent: {
+        id: 'admin',
+        email: 'mnshiddik11@gmail.com',
+        displayName: 'Master Admin',
+        role: 'admin',
+      },
+    };
+  }
+
+  // 1. Try server endpoint /api/validate-agent
+  try {
+    const res = await fetch(`/api/validate-agent?email=${encodeURIComponent(clean)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.valid && data.agent) {
+        return { valid: true, agent: data.agent };
+      }
+    }
+  } catch (err) {
+    console.warn('Backend agent check error:', err);
+  }
+
+  // 2. Try /api/agents
+  try {
+    const res = await fetch('/api/agents');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.agents)) {
+        const found = data.agents.find((a: any) => {
+          const aEmail = a.email?.toLowerCase().trim();
+          const aUsername = aEmail?.split('@')[0];
+          return aEmail === clean || aUsername === clean;
+        });
+        if (found) {
+          return { valid: true, agent: found };
+        }
+      }
+    }
+  } catch {}
+
+  // 3. Check Firestore users collection
+  try {
+    const usersCol = collection(db, 'users');
+    const snap = await getDocs(usersCol);
+    for (const docSnap of snap.docs) {
+      const u = docSnap.data() as UserProfile;
+      const uEmail = u.email?.toLowerCase().trim();
+      const uUsername = uEmail?.split('@')[0];
+      const isAgent = u.role === 'agent' || u.role === 'admin' || uEmail === 'mnshiddik11@gmail.com';
+      if (isAgent && (uEmail === clean || uUsername === clean)) {
+        return {
+          valid: true,
+          agent: {
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName || u.email,
+            role: u.role,
+          },
+        };
+      }
+    }
+  } catch (fsErr) {
+    console.warn('Firestore agent check error:', fsErr);
+  }
+
+  return {
+    valid: false,
+    message: 'আপনার এই জিমেইলে কোন এজেন্ট নেই',
+  };
+}
+
 
 // Real-time Firestore users listener
 export function subscribeToAllUsers(
