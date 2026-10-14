@@ -119,6 +119,13 @@ export function authenticateApiKey(req: Request): { user: any | null; error?: st
     };
   }
 
+  if (user.status !== 'approved' && user.role !== 'admin') {
+    return {
+      user: null,
+      error: 'আপনার একাউন্টটি এখনো এজেন্টের অনুমোদন পায়নি। এজেন্টের অনুমোদনের পর সেবা সচল হবে।',
+    };
+  }
+
   if (user.apiAccessStatus !== 'approved') {
     return {
       user: null,
