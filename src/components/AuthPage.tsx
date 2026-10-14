@@ -15,6 +15,7 @@ import {
   auth,
   UserProfile,
   fetchOrCreateUserProfile,
+  validateAgentEmail,
 } from '../lib/firebase';
 import {
   signInWithEmailAndPassword,
@@ -37,6 +38,44 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // Live Agent verification status
+  const [agentStatus, setAgentStatus] = useState<{
+    checking: boolean;
+    valid?: boolean;
+    name?: string;
+    email?: string;
+    message?: string;
+  }>({ checking: false });
+
+  // Debounced live verification of agent email
+  const verifyAgentLive = async (targetEmail: string) => {
+    const clean = targetEmail.trim().toLowerCase();
+    if (!clean) {
+      setAgentStatus({ checking: false });
+      return;
+    }
+    setAgentStatus({ checking: true });
+    try {
+      const res = await validateAgentEmail(clean);
+      if (res.valid && res.agent) {
+        setAgentStatus({
+          checking: false,
+          valid: true,
+          name: res.agent.displayName || res.agent.email,
+          email: res.agent.email,
+        });
+      } else {
+        setAgentStatus({
+          checking: false,
+          valid: false,
+          message: 'আপনার এই জিমেইলে কোন এজেন্ট নেই',
+        });
+      }
+    } catch {
+      setAgentStatus({ checking: false });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -52,7 +91,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
         // Strict Check: User cannot login if status is pending!
         if (profile.role !== 'admin' && profile.status === 'pending') {
           await signOut(auth);
-          setErrorMsg('আপনার একাউন্টে এখনো পেন্ডিং আছে। আপনার এজেন্টের অনুমোদনের জন্য অপেক্ষা করুন।');
+          setErrorMsg(`আপনার একাউন্টে এখনো পেন্ডিং আছে। আপনার এজেন্টের (${profile.agentEmail || 'Agent'}) অনুমোদনের জন্য অপেক্ষা করুন। অনুমোদন ছাড়া লগইন বা কাজ করা সম্ভব নয়।`);
           setLoading(false);
           return;
         }
@@ -86,14 +125,34 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
           return;
         }
 
+        // CRITICAL: Strict Agent Email Verification BEFORE Firebase account creation
+        const valResult = await validateAgentEmail(cleanAgent);
+        if (!valResult.valid) {
+          setErrorMsg('আপনার এই জিমেইলে কোন এজেন্ট নেই');
+          setLoading(false);
+          return;
+        }
+
+        const verifiedAgentEmail = valResult.agent?.email || cleanAgent;
+
+        // Store pending user metadata in localStorage so onAuthStateChanged detects it immediately
+        localStorage.setItem(
+          `nxv_pending_user_${cleanEmail}`,
+          JSON.stringify({
+            agentEmail: verifiedAgentEmail,
+            displayName: displayName.trim(),
+            timestamp: Date.now(),
+          })
+        );
+
         const userCred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
         await updateProfile(userCred.user, { displayName });
-        await fetchOrCreateUserProfile(userCred.user, displayName, cleanAgent);
+        await fetchOrCreateUserProfile(userCred.user, displayName, verifiedAgentEmail);
 
         // Immediately sign out user so they cannot enter app until agent approves
         await signOut(auth);
         setMode('login');
-        setSuccessMsg(`আপনার অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে! কিন্তু এটি এখনো পেন্ডিং অবস্থায় রয়েছে। এজেন্ট (${cleanAgent}) কর্তৃক অনুমোদনের পর আপনি লগইন করতে পারবেন।`);
+        setSuccessMsg(`আপনার অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে! কিন্তু এটি এখনো পেন্ডিং অবস্থায় রয়েছে। এজেন্ট (${verifiedAgentEmail}) কর্তৃক অনুমোদনের পর আপনি লগইন করতে পারবেন।`);
       }
     } catch (err: any) {
       console.warn('Auth error:', err);
@@ -241,20 +300,67 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
 
             {mode === 'register' && (
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  এজেন্ট মেইল (Agent Email)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    এজেন্ট মেইল (Agent Email)
+                  </label>
+                  {agentStatus.checking && (
+                    <span className="text-[10px] text-cyan-400 animate-pulse">যাচাই করা হচ্ছে...</span>
+                  )}
+                  {agentStatus.valid && (
+                    <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> ভেরিফাইড এজেন্ট
+                    </span>
+                  )}
+                  {agentStatus.valid === false && agentEmail.trim() && (
+                    <span className="text-[10px] text-rose-400 font-semibold">
+                      এজেন্ট পাওয়া যায়নি
+                    </span>
+                  )}
+                </div>
                 <div className="relative">
-                  <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <ShieldCheck
+                    className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 transition-colors ${
+                      agentStatus.valid
+                        ? 'text-emerald-400'
+                        : agentStatus.valid === false && agentEmail.trim()
+                        ? 'text-rose-400'
+                        : 'text-slate-500'
+                    }`}
+                  />
                   <input
                     type="email"
                     required
                     value={agentEmail}
-                    onChange={(e) => setAgentEmail(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAgentEmail(val);
+                      verifyAgentLive(val);
+                    }}
+                    onBlur={() => verifyAgentLive(agentEmail)}
                     placeholder="agent@gmail.com"
-                    className="w-full rounded-xl border border-slate-800 bg-slate-950/90 pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
+                    className={`w-full rounded-xl border bg-slate-950/90 pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none transition-colors ${
+                      agentStatus.valid
+                        ? 'border-emerald-500/50 focus:border-emerald-400'
+                        : agentStatus.valid === false && agentEmail.trim()
+                        ? 'border-rose-500/50 focus:border-rose-400'
+                        : 'border-slate-800 focus:border-cyan-400'
+                    }`}
                   />
                 </div>
+                {agentStatus.valid && agentStatus.name && (
+                  <p className="mt-1 text-[11px] text-emerald-400/90 flex items-center gap-1 animate-fadeIn">
+                    ✓ এজেন্ট: <strong className="text-white">{agentStatus.name}</strong> ({agentStatus.email})
+                  </p>
+                )}
+                {agentStatus.valid === false && agentEmail.trim() && (
+                  <p className="mt-1 text-[11px] text-rose-400 font-semibold flex items-center gap-1 animate-fadeIn">
+                    ⚠️ আপনার এই জিমেইলে কোন এজেন্ট নেই
+                  </p>
+                )}
+                <p className="mt-1 text-[10px] text-slate-500">
+                  * শুধুমাত্র রেজিস্টার্ড এজেন্টের অনুমোদনের মাধ্যমে অ্যাকাউন্ট সচল হবে।
+                </p>
               </div>
             )}
 
