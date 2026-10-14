@@ -250,23 +250,47 @@ app.post('/api/users/sync', (req: Request, res: Response) => {
 });
 
 app.post('/api/users/role', (req: Request, res: Response) => {
-  const { userId, role } = req.body;
-  if (!userId || !role) {
-    return res.status(400).json({ success: false, message: 'Missing userId or role' });
+  const { userId, userEmail, displayName, role } = req.body;
+  if ((!userId && !userEmail) || !role) {
+    return res.status(400).json({ success: false, message: 'Missing userId/userEmail or role' });
   }
 
   const users = readUsersFromFile();
-  const idx = users.findIndex((u) => u.id === userId);
-  if (idx === -1) {
-    return res.status(404).json({ success: false, message: 'User not found' });
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  let idx = users.findIndex(
+    (u) => (userId && u.id === userId) || (cleanEmail && u.email?.toLowerCase() === cleanEmail)
+  );
+
+  if (idx !== -1) {
+    if (users[idx].email === 'mnshiddik11@gmail.com' && role !== 'admin') {
+      return res.status(400).json({ success: false, message: 'Cannot demote Master Admin' });
+    }
+    users[idx].role = role;
+    if (displayName && !users[idx].displayName) users[idx].displayName = displayName;
+    if (role === 'agent' && users[idx].status === 'pending') {
+      users[idx].status = 'approved';
+    }
+    users[idx].updatedAt = new Date().toISOString();
+  } else {
+    // If not found in users_db.json, create/upsert user record
+    const isMaster = cleanEmail === 'mnshiddik11@gmail.com';
+    const newUser: UserRecord = {
+      id: userId || `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      email: cleanEmail || 'user@nxvsms.com',
+      displayName: displayName || cleanEmail.split('@')[0] || 'User',
+      role: isMaster ? 'admin' : role,
+      balance: 0,
+      totalNumbers: 0,
+      totalOtps: 0,
+      isBanned: false,
+      status: isMaster || role === 'agent' ? 'approved' : 'pending',
+      perOtpRate: 0.30,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    users.push(newUser);
   }
 
-  if (users[idx].email === 'mnshiddik11@gmail.com' && role !== 'admin') {
-    return res.status(400).json({ success: false, message: 'Cannot demote Master Admin' });
-  }
-
-  users[idx].role = role;
-  users[idx].updatedAt = new Date().toISOString();
   saveUsersToFile(users);
   return res.json({ success: true, message: `Role updated to ${role}` });
 });
@@ -326,22 +350,47 @@ app.post('/api/users/create', (req: Request, res: Response) => {
   const users = readUsersFromFile();
   const cleanEmail = email.trim().toLowerCase();
   const existing = users.find((u) => u.email?.toLowerCase() === cleanEmail);
+  const now = new Date().toISOString();
+  const isMaster = cleanEmail === 'mnshiddik11@gmail.com';
+
   if (existing) {
-    return res.status(400).json({ success: false, message: 'User with this email already exists' });
+    existing.role = isMaster ? 'admin' : (role || existing.role);
+    if (displayName) existing.displayName = displayName.trim();
+    if (typeof balance === 'number') existing.balance = balance;
+    if (role === 'agent' && existing.status === 'pending') {
+      existing.status = 'approved';
+    }
+    existing.updatedAt = now;
+    saveUsersToFile(users);
+    return res.json({ success: true, user: existing, message: 'User role updated' });
   }
 
-  const now = new Date().toISOString();
+  const agentEmailParam = (req.body.agentEmail || '').trim().toLowerCase();
+  if (agentEmailParam) {
+    const validAgent = users.find((u) => {
+      const isAgent = u.role === 'agent' || u.role === 'admin' || u.email.toLowerCase() === 'mnshiddik11@gmail.com';
+      if (!isAgent) return false;
+      const cleanAg = u.email.trim().toLowerCase();
+      return cleanAg === agentEmailParam || cleanAg.split('@')[0] === agentEmailParam;
+    });
+
+    if (!validAgent && agentEmailParam !== 'mnshiddik11@gmail.com') {
+      return res.status(400).json({ success: false, message: 'আপনার এই জিমেইলে কোন এজেন্ট নেই' });
+    }
+  }
+
   const newUser: UserRecord = {
     id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     email: cleanEmail,
     displayName: displayName?.trim() || cleanEmail.split('@')[0],
-    role: cleanEmail === 'mnshiddik11@gmail.com' ? 'admin' : role,
+    role: isMaster ? 'admin' : role,
     balance: Math.max(0, Number(balance) || 0),
     totalNumbers: 0,
     totalOtps: 0,
     isBanned: false,
-    agentEmail: req.body.agentEmail || '',
-    status: cleanEmail === 'mnshiddik11@gmail.com' ? 'approved' : (req.body.status || (req.body.agentEmail ? 'pending' : 'approved')),
+    agentEmail: agentEmailParam,
+    // ONLY master admin gets approved automatically. All other new users must be pending!
+    status: isMaster ? 'approved' : 'pending',
     perOtpRate: typeof req.body.perOtpRate === 'number' ? Math.min(0.60, Math.max(0.30, req.body.perOtpRate)) : 0.30,
     rejectionReason: req.body.rejectionReason || '',
     createdAt: now,
@@ -357,15 +406,113 @@ app.post('/api/users/create', (req: Request, res: Response) => {
 app.get('/api/agents', (_req: Request, res: Response) => {
   const users = readUsersFromFile();
   const agents = users
-    .filter((u) => u.role === 'agent' || u.role === 'admin' || u.email === 'mnshiddik11@gmail.com')
+    .filter((u) => u.role === 'agent' || u.role === 'admin' || u.email.toLowerCase() === 'mnshiddik11@gmail.com')
     .map((u) => ({
       id: u.id,
       email: u.email,
-      displayName: u.displayName,
+      displayName: u.displayName || u.email.split('@')[0],
       role: u.role,
     }));
   return res.json({ success: true, agents });
 });
+
+// Bulk sync agents from client to server
+app.post('/api/agents/sync', (req: Request, res: Response) => {
+  const { agents } = req.body;
+  if (!Array.isArray(agents)) {
+    return res.status(400).json({ success: false, message: 'Invalid agents array' });
+  }
+
+  const users = readUsersFromFile();
+  let updatedCount = 0;
+
+  for (const ag of agents) {
+    if (!ag || !ag.email) continue;
+    const cleanAg = ag.email.trim().toLowerCase();
+    const idx = users.findIndex(
+      (u) => (ag.id && u.id === ag.id) || u.email.toLowerCase() === cleanAg
+    );
+
+    if (idx >= 0) {
+      if (users[idx].email !== 'mnshiddik11@gmail.com') {
+        users[idx].role = ag.role || 'agent';
+      }
+      if (ag.displayName) users[idx].displayName = ag.displayName;
+      if (users[idx].status === 'pending' && (users[idx].role === 'agent' || users[idx].role === 'admin')) {
+        users[idx].status = 'approved';
+      }
+      users[idx].updatedAt = new Date().toISOString();
+      updatedCount++;
+    } else {
+      users.push({
+        id: ag.id || `ag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        email: cleanAg,
+        displayName: ag.displayName || cleanAg.split('@')[0],
+        role: ag.role || 'agent',
+        balance: ag.balance || 0,
+        totalNumbers: 0,
+        totalOtps: 0,
+        isBanned: false,
+        status: 'approved',
+        perOtpRate: 0.30,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      updatedCount++;
+    }
+  }
+
+  saveUsersToFile(users);
+  return res.json({ success: true, updatedCount, total: users.length });
+});
+
+// Validate agent email before user registration
+app.get('/api/validate-agent', (req: Request, res: Response) => {
+  const emailParam = ((req.query.email as string) || (req.body?.email as string) || '').trim().toLowerCase();
+  if (!emailParam) {
+    return res.status(400).json({ valid: false, message: 'এজেন্ট ইমেইল প্রদান করুন' });
+  }
+
+  const users = readUsersFromFile();
+  const agentFound = users.find((u) => {
+    const isAgent = u.role === 'agent' || u.role === 'admin' || u.email.toLowerCase() === 'mnshiddik11@gmail.com';
+    if (!isAgent) return false;
+    const cleanAgentEmail = u.email.trim().toLowerCase();
+    const agentUsername = cleanAgentEmail.split('@')[0];
+    return cleanAgentEmail === emailParam || agentUsername === emailParam;
+  });
+
+  // Always consider master admin valid
+  if (emailParam === 'mnshiddik11@gmail.com' || emailParam === 'mnshiddik11') {
+    return res.json({
+      valid: true,
+      agent: {
+        id: agentFound ? agentFound.id : 'master-admin',
+        email: 'mnshiddik11@gmail.com',
+        displayName: agentFound ? agentFound.displayName : 'Master Admin',
+        role: 'admin',
+      },
+    });
+  }
+
+  if (agentFound) {
+    return res.json({
+      valid: true,
+      agent: {
+        id: agentFound.id,
+        email: agentFound.email,
+        displayName: agentFound.displayName || agentFound.email.split('@')[0],
+        role: agentFound.role,
+      },
+    });
+  }
+
+  return res.json({
+    valid: false,
+    message: 'আপনার এই জিমেইলে কোন এজেন্ট নেই',
+  });
+});
+
 
 // Agent approves or rejects a pending user
 app.post('/api/users/approval', (req: Request, res: Response) => {
