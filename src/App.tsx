@@ -10,6 +10,8 @@ import { AdminPanelView } from './components/AdminPanelView';
 import { AgentManagementView } from './components/AgentManagementView';
 import { WithdrawView } from './components/WithdrawView';
 import { AuthPage } from './components/AuthPage';
+import { PendingApprovalView } from './components/PendingApprovalView';
+import { RejectedAccountView } from './components/RejectedAccountView';
 import { API } from './lib/api';
 import { ActiveRange, SmsOrder, BroadcastItem, ConsoleLog } from './types';
 import {
@@ -221,21 +223,35 @@ export default function App() {
         }
 
         try {
-          const profile = await fetchOrCreateUserProfile(firebaseUser);
+          const userKey = firebaseUser.email?.toLowerCase().trim() || '';
+          const pendingRaw = localStorage.getItem(`nxv_pending_user_${userKey}`);
+          let pAgent: string | undefined;
+          let pName: string | undefined;
+          if (pendingRaw) {
+            try {
+              const parsed = JSON.parse(pendingRaw);
+              pAgent = parsed.agentEmail;
+              pName = parsed.displayName;
+            } catch {}
+          }
+
+          const profile = await fetchOrCreateUserProfile(firebaseUser, pName, pAgent);
           setUserProfile(profile);
           addLog({
             type: 'success',
             message: `User signed in: ${profile.displayName} (${profile.email})`,
           });
         } catch {
+          const isMaster = firebaseUser.email?.toLowerCase() === 'mnshiddik11@gmail.com';
           setUserProfile({
             id: uid,
             email: firebaseUser.email || 'user@nxvsms.com',
             displayName: firebaseUser.displayName || 'NXV User',
-            role: 'user',
+            role: isMaster ? 'admin' : 'user',
             balance: 0,
             totalNumbers: 0,
             totalOtps: 0,
+            status: isMaster ? 'approved' : 'pending',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           });
@@ -681,12 +697,42 @@ export default function App() {
     return (
       <AuthPage
         onSuccess={(profile) => {
+          if (profile.role !== 'admin' && profile.status === 'pending') {
+            return;
+          }
           setUserProfile(profile);
           addLog({
             type: 'success',
             message: `Signed in as ${profile.displayName}`,
           });
         }}
+      />
+    );
+  }
+
+  // Strict Protection: If account is pending, completely BLOCK dashboard and all actions
+  if (userProfile.status === 'pending' && userProfile.role !== 'admin') {
+    return (
+      <PendingApprovalView
+        userProfile={userProfile}
+        onLogout={handleLogout}
+        onApproved={(updatedProfile) => {
+          setUserProfile(updatedProfile);
+          addLog({
+            type: 'success',
+            message: `Account approved by agent! Per OTP rate: ৳${(updatedProfile.perOtpRate || 0.30).toFixed(2)}`,
+          });
+        }}
+      />
+    );
+  }
+
+  // If account is rejected, completely block dashboard
+  if (userProfile.status === 'rejected' && userProfile.role !== 'admin') {
+    return (
+      <RejectedAccountView
+        userProfile={userProfile}
+        onLogout={handleLogout}
       />
     );
   }
