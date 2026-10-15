@@ -110,6 +110,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Public agents collection: readable by anyone (including unauthenticated visitors on signup)
+    match /agents/{agentId} {
+      allow get, list: if true;
+      allow create, update, delete: if isAdmin() || isSignedIn();
+    }
+
     // User collection
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin() || isSignedIn();
@@ -117,20 +123,17 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && (request.auth.uid == userId || isAdmin())
         && isValidId(userId)
-        && isValidUserProfile(incoming())
         && (incoming().role == 'user' || isAdmin());
       allow update: if (isOwner(userId)
         && isValidId(userId)
-        && isValidUserProfile(incoming())
         && incoming().role == existing().role
         && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'balance', 'totalNumbers', 'totalOtps', 'updatedAt', 'agentEmail', 'apiKey', 'apiAccessStatus', 'apiHits', 'apiRequestReason', 'apiRequestDate', 'rejectionReason']))
-        || (isAdmin() && isValidUserProfile(incoming()))
+        || isAdmin()
         || (isSignedIn()
-            && isValidUserProfile(incoming())
             && incoming().role == existing().role
             && request.auth.token.email != null
             && ('agentEmail' in existing())
-            && (request.auth.token.email == existing().agentEmail || request.auth.token.email.matches('(?i)' + existing().agentEmail))
+            && (request.auth.token.email.lower() == existing().agentEmail.lower())
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'perOtpRate', 'rejectionReason', 'updatedAt']));
       allow delete: if isAdmin();
 
