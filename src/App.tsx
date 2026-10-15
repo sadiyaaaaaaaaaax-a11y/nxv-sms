@@ -21,6 +21,7 @@ import {
   fetchOrCreateUserProfile,
   testConnection,
   creditUserForOtp,
+  ensurePublicAgentsSeeded,
 } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc } from 'firebase/firestore';
@@ -179,6 +180,7 @@ export default function App() {
     } catch {}
 
     testConnection().catch(() => {});
+    ensurePublicAgentsSeeded().catch(() => {});
     loadActiveRanges();
     loadBroadcasts();
   }, []);
@@ -236,6 +238,11 @@ export default function App() {
           }
 
           const profile = await fetchOrCreateUserProfile(firebaseUser, pName, pAgent);
+          if (profile.status === 'approved') {
+            try {
+              localStorage.removeItem(`nxv_pending_user_${userKey}`);
+            } catch {}
+          }
           setUserProfile(profile);
           addLog({
             type: 'success',
