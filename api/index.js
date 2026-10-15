@@ -206,90 +206,169 @@ export default async function handler(req, res) {
 
   if (pathname === '/api/users/role' && req.method === 'POST') {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const { userId, role } = body;
-    if (global._nxvUsersStore) {
-      const u = global._nxvUsersStore.find((x) => x.id === userId);
-      if (u) {
-        u.role = u.email === 'mnshiddik11@gmail.com' ? 'admin' : role;
-        u.updatedAt = new Date().toISOString();
-      }
-    }
-    return res.status(200).json({ success: true });
-  }
-
-  if (pathname === '/api/users/ban' && req.method === 'POST') {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const { userId, isBanned, banReason } = body;
-    if (global._nxvUsersStore) {
-      const u = global._nxvUsersStore.find((x) => x.id === userId);
-      if (u && u.email !== 'mnshiddik11@gmail.com') {
-        u.isBanned = Boolean(isBanned);
-        u.banReason = banReason || '';
-        u.updatedAt = new Date().toISOString();
-      }
-    }
-    return res.status(200).json({ success: true });
-  }
-
-  if (pathname === '/api/users/balance' && req.method === 'POST') {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const { userId, balance, amountChange } = body;
-    if (global._nxvUsersStore) {
-      const u = global._nxvUsersStore.find((x) => x.id === userId);
-      if (u) {
-        if (typeof balance === 'number') u.balance = Math.max(0, balance);
-        else if (typeof amountChange === 'number') u.balance = Math.max(0, (u.balance || 0) + amountChange);
-        u.updatedAt = new Date().toISOString();
-      }
-    }
-    return res.status(200).json({ success: true });
-  }
-
-  if (pathname === '/api/users/create' && req.method === 'POST') {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const { displayName, email, role = 'user', balance = 0 } = body;
+    const { userId, userEmail, displayName, role } = body;
     if (!global._nxvUsersStore) global._nxvUsersStore = [];
+    if (!global._nxvAgentsStore) global._nxvAgentsStore = [];
+
+    const cleanEmail = (userEmail || '').trim().toLowerCase();
+    const u = global._nxvUsersStore.find((x) => (userId && x.id === userId) || (cleanEmail && x.email?.toLowerCase() === cleanEmail));
     const now = new Date().toISOString();
-    const newUser = {
-      id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      email: email.trim().toLowerCase(),
-      displayName: displayName?.trim() || email.split('@')[0],
-      role: email === 'mnshiddik11@gmail.com' ? 'admin' : role,
-      balance: Math.max(0, Number(balance) || 0),
-      totalNumbers: 0,
-      totalOtps: 0,
-      isBanned: false,
-      createdAt: now,
-      updatedAt: now,
-    };
-    global._nxvUsersStore.push(newUser);
-    return res.status(200).json({ success: true, user: newUser });
+
+    if (u) {
+      u.role = u.email === 'mnshiddik11@gmail.com' ? 'admin' : role;
+      if (displayName) u.displayName = displayName;
+      if (role === 'agent') {
+        u.status = 'approved';
+        if (!u.perOtpRate) u.perOtpRate = 0.40;
+      }
+      u.updatedAt = now;
+    } else if (cleanEmail) {
+      const newUser = {
+        id: userId || `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        email: cleanEmail,
+        displayName: displayName || cleanEmail.split('@')[0],
+        role: cleanEmail === 'mnshiddik11@gmail.com' ? 'admin' : role,
+        balance: 0,
+        totalNumbers: 0,
+        totalOtps: 0,
+        isBanned: false,
+        status: cleanEmail === 'mnshiddik11@gmail.com' || role === 'agent' ? 'approved' : 'pending',
+        perOtpRate: role === 'agent' ? 0.40 : 0.30,
+        createdAt: now,
+        updatedAt: now,
+      };
+      global._nxvUsersStore.push(newUser);
+    }
+
+    if (role === 'agent' || role === 'admin') {
+      const agEmail = cleanEmail || u?.email || '';
+      if (agEmail) {
+        const agIdx = global._nxvAgentsStore.findIndex((a) => a.email.toLowerCase() === agEmail.toLowerCase());
+        const agObj = {
+          id: userId || u?.id || `agent-${Date.now()}`,
+          email: agEmail,
+          displayName: displayName || u?.displayName || agEmail.split('@')[0],
+          role,
+        };
+        if (agIdx >= 0) global._nxvAgentsStore[agIdx] = agObj;
+        else global._nxvAgentsStore.push(agObj);
+      }
+    }
+    return res.status(200).json({ success: true });
+  }
+
+  // Validate Agent Endpoint for Vercel
+  if (pathname === '/api/validate-agent' && req.method === 'GET') {
+    const emailParam = (url.searchParams.get('email') || '').trim().toLowerCase();
+    if (!emailParam) {
+      return res.status(400).json({ valid: false, message: 'ইমেইল এড্রেস আবশ্যক' });
+    }
+
+    // Master admin is always authorized
+    if (emailParam === 'mnshiddik11@gmail.com' || emailParam === 'mnshiddik11') {
+      return res.status(200).json({
+        valid: true,
+        agent: {
+          id: 'admin',
+          email: 'mnshiddik11@gmail.com',
+          displayName: 'Master Admin',
+          role: 'admin',
+        },
+      });
+    }
+
+    const agentsList = [
+      ...(global._nxvAgentsStore || []),
+      ...(global._nxvUsersStore || []).filter((u) => u.role === 'agent' || u.role === 'admin'),
+    ];
+
+    const found = agentsList.find((a) => {
+      const aEmail = a.email?.toLowerCase().trim();
+      const aUser = aEmail?.split('@')[0];
+      return aEmail === emailParam || aUser === emailParam;
+    });
+
+    if (found) {
+      return res.status(200).json({
+        valid: true,
+        agent: {
+          id: found.id || 'agent',
+          email: found.email,
+          displayName: found.displayName || found.email.split('@')[0],
+          role: found.role || 'agent',
+        },
+      });
+    }
+
+    return res.status(200).json({ valid: false, message: 'আপনার এই জিমেইলে কোন এজেন্ট নেই' });
+  }
+
+  // Bulk agents sync
+  if (pathname === '/api/agents/sync' && req.method === 'POST') {
+    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    const incomingAgents = Array.isArray(body.agents) ? body.agents : [];
+    if (!global._nxvAgentsStore) global._nxvAgentsStore = [];
+    incomingAgents.forEach((ag) => {
+      if (!ag || !ag.email) return;
+      const clean = ag.email.toLowerCase().trim();
+      const idx = global._nxvAgentsStore.findIndex((a) => a.email.toLowerCase() === clean);
+      const obj = {
+        id: ag.id || `agent-${clean.replace(/[^a-z0-9_-]/g, '_')}`,
+        email: clean,
+        displayName: ag.displayName || clean.split('@')[0],
+        role: ag.role || 'agent',
+      };
+      if (idx >= 0) global._nxvAgentsStore[idx] = obj;
+      else global._nxvAgentsStore.push(obj);
+    });
+    return res.status(200).json({ success: true, count: global._nxvAgentsStore.length });
   }
 
   if (pathname === '/api/agents' && req.method === 'GET') {
-    const list = (global._nxvUsersStore || []).filter(
-      (u) => u.role === 'agent' || u.role === 'admin' || u.email === 'mnshiddik11@gmail.com'
-    );
-    return res.status(200).json({ success: true, agents: list });
+    const map = new Map();
+    // Default Master Admin
+    map.set('mnshiddik11@gmail.com', {
+      id: 'admin',
+      email: 'mnshiddik11@gmail.com',
+      displayName: 'Master Admin',
+      role: 'admin',
+    });
+
+    (global._nxvAgentsStore || []).forEach((a) => {
+      if (a && a.email) map.set(a.email.toLowerCase().trim(), a);
+    });
+
+    (global._nxvUsersStore || []).forEach((u) => {
+      if (u && (u.role === 'agent' || u.role === 'admin' || u.email?.toLowerCase() === 'mnshiddik11@gmail.com')) {
+        map.set(u.email.toLowerCase().trim(), {
+          id: u.id,
+          email: u.email,
+          displayName: u.displayName || u.email.split('@')[0],
+          role: u.role,
+        });
+      }
+    });
+
+    return res.status(200).json({ success: true, agents: Array.from(map.values()) });
   }
 
   if (pathname === '/api/users/approval' && req.method === 'POST') {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const { userId, status, perOtpRate, rejectionReason } = body;
-    if (global._nxvUsersStore) {
-      const u = global._nxvUsersStore.find((x) => x.id === userId);
-      if (u) {
-        u.status = status;
-        if (status === 'approved') {
-          const rate = typeof perOtpRate === 'number' ? perOtpRate : parseFloat(perOtpRate);
-          u.perOtpRate = isNaN(rate) ? 0.30 : Math.min(0.60, Math.max(0.30, Number(rate.toFixed(2))));
-          u.rejectionReason = '';
-        } else if (status === 'rejected') {
-          u.rejectionReason = rejectionReason || 'Rejected';
-        }
-        u.updatedAt = new Date().toISOString();
-        return res.status(200).json({ success: true, user: u });
+    const { userId, userEmail, status, perOtpRate, rejectionReason } = body;
+    if (!global._nxvUsersStore) global._nxvUsersStore = [];
+    const cleanEmail = (userEmail || '').trim().toLowerCase();
+    const u = global._nxvUsersStore.find((x) => (userId && x.id === userId) || (cleanEmail && x.email?.toLowerCase() === cleanEmail));
+    if (u) {
+      u.status = status;
+      if (status === 'approved') {
+        const rate = typeof perOtpRate === 'number' ? perOtpRate : parseFloat(perOtpRate);
+        u.perOtpRate = isNaN(rate) ? 0.30 : Math.min(0.60, Math.max(0.30, Number(rate.toFixed(2))));
+        u.rejectionReason = '';
+      } else if (status === 'rejected') {
+        u.rejectionReason = rejectionReason || 'Rejected';
       }
+      u.updatedAt = new Date().toISOString();
+      return res.status(200).json({ success: true, user: u });
     }
     return res.status(200).json({ success: true });
   }
