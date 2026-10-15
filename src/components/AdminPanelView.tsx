@@ -403,7 +403,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   const handleApprovePendingUser = async (target: UserProfile) => {
     try {
       const rate = target.perOtpRate && target.perOtpRate >= 0.30 ? target.perOtpRate : 0.40;
-      await updateUserApproval(target.id, 'approved', rate);
+      await updateUserApproval(target.id, 'approved', rate, undefined, target.email);
       setUsers((prev) =>
         prev.map((u) => (u.id === target.id ? { ...u, status: 'approved', perOtpRate: rate } : u))
       );
@@ -417,7 +417,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   // Handle Reject Pending User directly from Admin Panel
   const handleRejectPendingUser = async (target: UserProfile) => {
     try {
-      await updateUserApproval(target.id, 'rejected', 0, 'এডমিন কর্তৃক বাতিল');
+      await updateUserApproval(target.id, 'rejected', 0, 'এডমিন কর্তৃক বাতিল', target.email);
       setUsers((prev) =>
         prev.map((u) => (u.id === target.id ? { ...u, status: 'rejected', rejectionReason: 'এডমিন কর্তৃক বাতিল' } : u))
       );
