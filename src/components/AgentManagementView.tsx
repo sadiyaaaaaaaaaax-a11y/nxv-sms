@@ -180,7 +180,13 @@ export const AgentManagementView: React.FC<AgentManagementViewProps> = ({
 
     setIsSubmittingApproval(true);
     try {
-      await updateUserApproval(selectedUserForApproval.id, 'approved', rate);
+      await updateUserApproval(
+        selectedUserForApproval.id,
+        'approved',
+        rate,
+        undefined,
+        selectedUserForApproval.email
+      );
 
       // Local optimistic update
       setUsers((prev) =>
@@ -214,7 +220,13 @@ export const AgentManagementView: React.FC<AgentManagementViewProps> = ({
     setIsSubmittingReject(true);
     try {
       const reason = rejectReason.trim() || 'এজেন্ট কর্তৃক আবেদন বাতিল করা হয়েছে';
-      await updateUserApproval(selectedUserForReject.id, 'rejected', 0, reason);
+      await updateUserApproval(
+        selectedUserForReject.id,
+        'rejected',
+        0,
+        reason,
+        selectedUserForReject.email
+      );
 
       setUsers((prev) =>
         prev.map((u) =>
