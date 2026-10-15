@@ -65,6 +65,20 @@
         "authorId": { "type": "string", "maxLength": 128 }
       },
       "required": ["id", "title", "message", "type", "createdAt"]
+    },
+    "Agent": {
+      "title": "Agent",
+      "description": "Publicly verified agent or admin account for registration assignment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["agent", "admin"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["email", "role"]
     }
   },
   "firestore": {
@@ -79,6 +93,10 @@
     "/broadcastLogs/{logId}": {
       "schema": { "$ref": "BroadcastLog" },
       "description": "System broadcast feed and console updates"
+    },
+    "/agents/{agentId}": {
+      "schema": { "$ref": "Agent" },
+      "description": "Public agent directory for registration validation"
     }
   }
 }
