@@ -389,22 +389,57 @@ export async function updateUserRole(
   userEmail?: string,
   displayName?: string
 ): Promise<boolean> {
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const now = new Date().toISOString();
+
+  // 1. Update Firestore user document
   try {
     const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
-      role: newRole,
-      updatedAt: new Date().toISOString(),
-    });
+    await setDoc(
+      userRef,
+      {
+        role: newRole,
+        updatedAt: now,
+        ...(newRole === 'agent' ? { status: 'approved' } : {}),
+      },
+      { merge: true }
+    );
   } catch (err) {
     console.warn('Firestore update role error:', err);
   }
 
-  // Always update backend API as well
+  // 2. If agent or admin, persist in public Firestore /agents collection for unauthenticated registration validation!
+  if (newRole === 'agent' || newRole === 'admin') {
+    const safeAgentId = (cleanEmail || userId).replace(/[^a-z0-9_-]/g, '_');
+    try {
+      await setDoc(
+        doc(db, 'agents', safeAgentId),
+        {
+          id: userId,
+          email: cleanEmail,
+          displayName: displayName || cleanEmail.split('@')[0],
+          role: newRole,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('Failed to sync agent to public /agents:', e);
+    }
+  } else if (cleanEmail) {
+    // Demoted: remove from public agents directory
+    const safeAgentId = cleanEmail.replace(/[^a-z0-9_-]/g, '_');
+    try {
+      await deleteDoc(doc(db, 'agents', safeAgentId));
+    } catch {}
+  }
+
+  // 3. Update backend API as well (Local & Vercel)
   try {
     await fetch('/api/users/role', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, userEmail, displayName, role: newRole }),
+      body: JSON.stringify({ userId, userEmail: cleanEmail, displayName, role: newRole }),
     });
     return true;
   } catch (err) {
@@ -413,10 +448,33 @@ export async function updateUserRole(
   }
 }
 
-// Bulk sync agents to backend
+// Bulk sync agents to public Firestore collection and backend
 export async function syncAgentsToBackend(
   agents: Array<{ id?: string; email: string; displayName?: string; role?: string }>
 ): Promise<void> {
+  // Sync to Firestore /agents (publicly accessible by signup)
+  for (const ag of agents) {
+    if (!ag || !ag.email) continue;
+    const clean = ag.email.toLowerCase().trim();
+    const safeId = clean.replace(/[^a-z0-9_-]/g, '_');
+    try {
+      await setDoc(
+        doc(db, 'agents', safeId),
+        {
+          id: ag.id || safeId,
+          email: clean,
+          displayName: ag.displayName || clean.split('@')[0],
+          role: ag.role || 'agent',
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      // Ignored
+    }
+  }
+
+  // Sync to backend /api/agents/sync
   try {
     await fetch('/api/agents/sync', {
       method: 'POST',
@@ -508,7 +566,8 @@ export async function updateUserApproval(
   userId: string,
   status: 'approved' | 'rejected',
   perOtpRate?: number,
-  rejectionReason?: string
+  rejectionReason?: string,
+  userEmail?: string
 ): Promise<boolean> {
   const safeRate = perOtpRate !== undefined 
     ? Math.min(0.60, Math.max(0.30, Number(Number(perOtpRate).toFixed(2)))) 
@@ -524,20 +583,33 @@ export async function updateUserApproval(
     updates.rejectionReason = rejectionReason || 'Rejected by Agent';
   }
 
-  // Update Firestore
+  // 1. Update Firestore with setDoc merge so it never fails on missing fields or precondition checks
   try {
     const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, updates);
+    await setDoc(userRef, updates, { merge: true });
   } catch (err) {
-    console.warn('Firestore update approval error:', err);
+    console.warn('Firestore setDoc approval error:', err);
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, updates);
+    } catch (err2) {
+      console.error('Firestore updateDoc approval error:', err2);
+    }
   }
 
-  // Update backend API
+  // Clear local pending registration key if present
+  if (userEmail) {
+    try {
+      localStorage.removeItem(`nxv_pending_user_${userEmail.toLowerCase().trim()}`);
+    } catch {}
+  }
+
+  // 2. Update backend API as well (Local & Vercel)
   try {
     await fetch('/api/users/approval', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, status, perOtpRate: safeRate, rejectionReason }),
+      body: JSON.stringify({ userId, userEmail, status, perOtpRate: safeRate, rejectionReason }),
     });
   } catch (err) {
     console.warn('Backend update approval error:', err);
@@ -640,6 +712,23 @@ export async function creditUserForOtp(
   return { success: false, credited: 0, newBalance: 0, totalOtps: 0 };
 }
 
+// Ensure Master Admin and registered agents are seeded in Firestore public 'agents' directory
+export async function ensurePublicAgentsSeeded(): Promise<void> {
+  try {
+    await setDoc(
+      doc(db, 'agents', 'mnshiddik11_gmail_com'),
+      {
+        id: 'admin_mnshiddik11',
+        email: 'mnshiddik11@gmail.com',
+        displayName: 'Master Admin',
+        role: 'admin',
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch {}
+}
+
 // Fetch list of registered agents
 export async function fetchAgentsList(): Promise<{ id: string; email: string; displayName: string; role?: string }[]> {
   try {
@@ -683,7 +772,45 @@ export async function validateAgentEmail(
     };
   }
 
-  // 1. Try server endpoint /api/validate-agent
+  // 1. Check Firestore public 'agents' collection (Readable without auth on Vercel)
+  try {
+    const safeId = clean.replace(/[^a-z0-9_-]/g, '_');
+    const directDoc = await getDoc(doc(db, 'agents', safeId));
+    if (directDoc.exists()) {
+      const data = directDoc.data();
+      return {
+        valid: true,
+        agent: {
+          id: data.id || directDoc.id,
+          email: data.email || clean,
+          displayName: data.displayName || clean.split('@')[0],
+          role: data.role || 'agent',
+        },
+      };
+    }
+
+    const agentsSnap = await getDocs(collection(db, 'agents'));
+    for (const d of agentsSnap.docs) {
+      const a = d.data();
+      const aEmail = a.email?.toLowerCase().trim();
+      const aUsername = aEmail?.split('@')[0];
+      if (aEmail === clean || aUsername === clean || d.id === safeId) {
+        return {
+          valid: true,
+          agent: {
+            id: a.id || d.id,
+            email: a.email || clean,
+            displayName: a.displayName || a.email || clean.split('@')[0],
+            role: a.role || 'agent',
+          },
+        };
+      }
+    }
+  } catch (fsErr) {
+    console.warn('Firestore public agents check error:', fsErr);
+  }
+
+  // 2. Try server endpoint /api/validate-agent
   try {
     const res = await fetch(`/api/validate-agent?email=${encodeURIComponent(clean)}`);
     if (res.ok) {
@@ -820,7 +947,7 @@ export async function fetchAllUsers(): Promise<UserProfile[]> {
                 email: u.email || existing.email,
                 displayName: u.displayName || existing.displayName,
                 role: (existing.role === 'admin' ? 'admin' : (u.role || existing.role)),
-                status: u.status || existing.status,
+                status: (existing.status === 'approved' || u.status === 'approved') ? 'approved' : (u.status || existing.status || 'pending'),
                 agentEmail: (u.agentEmail && u.agentEmail.trim() !== '') ? u.agentEmail : existing.agentEmail,
                 perOtpRate: typeof u.perOtpRate === 'number' ? u.perOtpRate : existing.perOtpRate,
                 balance: typeof u.balance === 'number' ? u.balance : existing.balance,
