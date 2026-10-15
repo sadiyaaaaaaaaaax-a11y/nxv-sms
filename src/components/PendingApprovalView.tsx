@@ -12,7 +12,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { UserProfile, fetchOrCreateUserProfile, auth, db } from '../lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc } from 'firebase/firestore';
 
 interface PendingApprovalViewProps {
   userProfile: UserProfile;
@@ -49,6 +49,16 @@ export const PendingApprovalView: React.FC<PendingApprovalViewProps> = ({
     setRefreshMsg(null);
     try {
       if (auth.currentUser) {
+        // Direct Firestore check
+        const directSnap = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        if (directSnap.exists()) {
+          const directData = directSnap.data() as UserProfile;
+          if (directData.status === 'approved') {
+            onApproved(directData);
+            return;
+          }
+        }
+
         const refreshed = await fetchOrCreateUserProfile(auth.currentUser);
         if (refreshed.status === 'approved') {
           onApproved(refreshed);
