@@ -21,6 +21,7 @@ export interface PersistentOrder {
   earnedAmount?: number;
   source: 'api' | 'web';
   apiKey?: string;
+  checkOtpUrl?: string;
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
@@ -618,12 +619,17 @@ export const handleGetOtpApi = async (req: Request, res: Response) => {
   }
 
   const orders = readOrdersFromFile();
-  const order = orders.find(
-    (o) =>
-      o.userId === user.id &&
-      (orderId ? o.id === orderId : false ||
-       phoneParam ? o.phoneNumber.replace(/[^0-9]/g, '') === phoneParam.replace(/[^0-9]/g, '') : false)
-  );
+  const cleanPhoneParam = phoneParam.replace(/[^0-9]/g, '');
+  const order = orders.find((o) => {
+    const isOwner =
+      o.userId === user.id ||
+      (user.apiKey && o.apiKey === user.apiKey) ||
+      (user.email && o.userEmail && o.userEmail.toLowerCase() === user.email.toLowerCase());
+    if (!isOwner) return false;
+    if (orderId && o.id === orderId) return true;
+    if (cleanPhoneParam && o.phoneNumber && o.phoneNumber.replace(/[^0-9]/g, '') === cleanPhoneParam) return true;
+    return false;
+  });
 
   if (!order) {
     return res.status(404).json({
@@ -947,11 +953,22 @@ apiRouter.get('/api/users/orders', (req: Request, res: Response) => {
   const email = ((req.query.email as string) || '').trim().toLowerCase();
   let orders = readOrdersFromFile();
 
-  if (userId || apiKey || email) {
+  const users = readUsersFromFile();
+  const matchedUser = users.find(
+    (u) =>
+      (userId && u.id === userId) ||
+      (apiKey && u.apiKey === apiKey) ||
+      (email && u.email && u.email.toLowerCase() === email)
+  );
+  const userApiKey = matchedUser?.apiKey || apiKey;
+  const userEmail = matchedUser?.email?.toLowerCase() || email;
+  const targetUid = matchedUser?.id || userId;
+
+  if (targetUid || userApiKey || userEmail) {
     orders = orders.filter((o) => {
-      if (apiKey && (o.apiKey === apiKey || (o.id && apiKey.includes(o.userId)))) return true;
-      if (userId && o.userId === userId) return true;
-      if (email && o.userEmail && o.userEmail.toLowerCase() === email) return true;
+      if (userApiKey && (o.apiKey === userApiKey || (o.checkOtpUrl && o.checkOtpUrl.includes(userApiKey)))) return true;
+      if (targetUid && o.userId === targetUid) return true;
+      if (userEmail && o.userEmail && o.userEmail.toLowerCase() === userEmail) return true;
       return false;
     });
   }
