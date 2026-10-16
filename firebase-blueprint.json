@@ -97,6 +97,14 @@
     "/agents/{agentId}": {
       "schema": { "$ref": "Agent" },
       "description": "Public agent directory for registration validation"
+    },
+    "/api_keys/{apiKey}": {
+      "schema": { "$ref": "UserProfile" },
+      "description": "Public API Key lookup for external API and Telegram Bot authentication"
+    },
+    "/api_orders/{orderId}": {
+      "schema": { "$ref": "SmsOrder" },
+      "description": "Public API orders collection for Telegram Bot integrations"
     }
   }
 }
