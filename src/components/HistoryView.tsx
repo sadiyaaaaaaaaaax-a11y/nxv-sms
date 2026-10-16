@@ -11,15 +11,25 @@ import {
   Download,
   PhoneCall,
   Sparkles,
+  RefreshCw,
+  Bot,
+  Globe,
 } from 'lucide-react';
 import { SmsOrder } from '../types';
 
 interface HistoryViewProps {
   orders: SmsOrder[];
   onSelectGetNumber: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
-export const HistoryView: React.FC<HistoryViewProps> = ({ orders, onSelectGetNumber }) => {
+export const HistoryView: React.FC<HistoryViewProps> = ({
+  orders,
+  onSelectGetNumber,
+  onRefresh,
+  isRefreshing,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -73,7 +83,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ orders, onSelectGetNum
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-950/40 px-3 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-900/50 hover:text-white transition-all disabled:opacity-50"
+              title="টেলিগ্রাম বট ও ওয়েবসাইটের সকল নাম্বার রিফ্রেশ করুন"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-cyan-400' : ''}`} />
+              <span>{isRefreshing ? 'রিফ্রেশ হচ্ছে...' : 'রিফ্রেশ করুন'}</span>
+            </button>
+          )}
+
           {orders.length > 0 && (
             <button
               onClick={handleExportCSV}
@@ -203,6 +225,17 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ orders, onSelectGetNum
                         <span className="rounded bg-cyan-500/20 px-2 py-0.5 text-[10px] font-bold text-cyan-300 border border-cyan-500/30">
                           {order.service}
                         </span>
+                        {order.source === 'api' || order.apiKey ? (
+                          <span className="rounded bg-purple-500/20 px-2 py-0.5 text-[10px] font-bold text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                            <Bot className="h-3 w-3" />
+                            Bot/API
+                          </span>
+                        ) : (
+                          <span className="rounded bg-blue-500/20 px-2 py-0.5 text-[10px] font-bold text-blue-300 border border-blue-500/30 flex items-center gap-1">
+                            <Globe className="h-3 w-3" />
+                            Web Panel
+                          </span>
+                        )}
                       </div>
 
                       <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
