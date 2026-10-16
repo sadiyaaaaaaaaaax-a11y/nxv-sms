@@ -120,6 +120,61 @@ export default function App() {
     return null;
   });
 
+  const [isSyncingOrders, setIsSyncingOrders] = useState<boolean>(false);
+
+  const triggerImmediateSync = async () => {
+    const curUid = profileRef.current?.id || userProfile?.id;
+    if (!curUid) return;
+    setIsSyncingOrders(true);
+    try {
+      const curApiKey = profileRef.current?.apiKey || userProfile?.apiKey || '';
+      const curEmail = (profileRef.current?.email || userProfile?.email || '').toLowerCase();
+      const ordersRes = await fetch(
+        `/api/users/orders?userId=${encodeURIComponent(curUid)}&apiKey=${encodeURIComponent(curApiKey)}&email=${encodeURIComponent(curEmail)}`
+      );
+      if (ordersRes.ok) {
+        const oJson = await ordersRes.json();
+        if (oJson.success && Array.isArray(oJson.orders)) {
+          const myServerOrders: SmsOrder[] = oJson.orders.filter((ord: any) => {
+            return (
+              ord &&
+              ord.id &&
+              (ord.userId === curUid ||
+                (curApiKey && (ord.apiKey === curApiKey || ord.checkOtpUrl?.includes(curApiKey))) ||
+                (curEmail && ord.userEmail && ord.userEmail.toLowerCase() === curEmail))
+            );
+          });
+
+          if (myServerOrders.length > 0) {
+            setOrders((prev) => {
+              const map = new Map<string, SmsOrder>();
+              prev.forEach((o) => map.set(o.id, o));
+              myServerOrders.forEach((so) => {
+                const existing = map.get(so.id);
+                if (!existing || new Date(so.updatedAt || 0) >= new Date(existing.updatedAt || 0)) {
+                  map.set(so.id, { ...existing, ...so, userId: curUid });
+                }
+              });
+              const merged = Array.from(map.values()).sort(
+                (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+              );
+              setStoredUserOrders(curUid, merged);
+              return merged;
+            });
+          }
+        }
+      }
+    } catch {} finally {
+      setIsSyncingOrders(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      triggerImmediateSync();
+    }
+  }, [activeTab]);
+
   // Active Ranges
   const [ranges, setRanges] = useState<ActiveRange[]>([]);
   const [rangesLoading, setRangesLoading] = useState<boolean>(false);
@@ -330,22 +385,91 @@ export default function App() {
             if (ordersRes.ok) {
               const oJson = await ordersRes.json();
               if (oJson.success && Array.isArray(oJson.orders) && oJson.orders.length > 0) {
-                for (const ord of oJson.orders) {
-                  if (ord && ord.id) {
-                    const isMyOrder =
-                      ord.userId === uid ||
+                const myServerOrders: SmsOrder[] = oJson.orders.filter((ord: any) => {
+                  return (
+                    ord &&
+                    ord.id &&
+                    (ord.userId === uid ||
                       (curApiKey && (ord.apiKey === curApiKey || ord.checkOtpUrl?.includes(curApiKey))) ||
-                      (curEmail && ord.userEmail && ord.userEmail.toLowerCase() === curEmail);
+                      (curEmail && ord.userEmail && ord.userEmail.toLowerCase() === curEmail))
+                  );
+                });
 
-                    if (isMyOrder) {
-                      const userOrderDoc = doc(db, 'users', uid, 'smsOrders', ord.id);
-                      const syncedOrder = {
-                        ...ord,
-                        userId: uid,
-                        userEmail: ord.userEmail || curEmail,
-                      };
-                      setDoc(userOrderDoc, syncedOrder, { merge: true }).catch(() => {});
+                if (myServerOrders.length > 0) {
+                  // Direct state update so numbers appear in history and profile IMMEDIATELY
+                  setOrders((prev) => {
+                    const map = new Map<string, SmsOrder>();
+                    prev.forEach((o) => map.set(o.id, o));
+                    myServerOrders.forEach((so) => {
+                      const existing = map.get(so.id);
+                      if (!existing || new Date(so.updatedAt || 0) >= new Date(existing.updatedAt || 0)) {
+                        map.set(so.id, { ...existing, ...so, userId: uid });
+                      }
+                    });
+                    const merged = Array.from(map.values()).sort(
+                      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                    );
+                    setStoredUserOrders(uid, merged);
+                    return merged;
+                  });
+
+                  // If user has a waiting order from bot, update activeOrder
+                  setActiveOrder((current) => {
+                    if (!current || current.userId !== uid) {
+                      const waitingOrder = myServerOrders.find(
+                        (o) =>
+                          o.status === 'WAITING' &&
+                          o.expiresAt &&
+                          Date.now() < new Date(o.expiresAt).getTime()
+                      ) || null;
+                      if (waitingOrder) {
+                        setStoredUserActiveOrder(uid, waitingOrder);
+                        return waitingOrder;
+                      }
+                    } else {
+                      const updatedMatch = myServerOrders.find((o) => o.id === current.id);
+                      if (updatedMatch) {
+                        if (
+                          updatedMatch.status !== 'WAITING' ||
+                          (updatedMatch.expiresAt && Date.now() >= new Date(updatedMatch.expiresAt).getTime())
+                        ) {
+                          setStoredUserActiveOrder(uid, null);
+                          return null;
+                        }
+                        return updatedMatch;
+                      }
                     }
+                    return current;
+                  });
+
+                  // Background sync to Firestore safely
+                  for (const ord of myServerOrders) {
+                    try {
+                      const userOrderDoc = doc(db, 'users', uid, 'smsOrders', ord.id);
+                      const safeFirestoreDoc: any = {
+                        id: ord.id,
+                        userId: uid,
+                        phoneNumber: ord.phoneNumber,
+                        service: ord.service || 'Telegram',
+                        country: ord.country || 'UK (+44)',
+                        range: ord.range || '',
+                        status: ord.status,
+                        source: ord.source || 'api',
+                        createdAt: ord.createdAt,
+                        updatedAt: ord.updatedAt || new Date().toISOString(),
+                      };
+                      if (ord.otpCode) safeFirestoreDoc.otpCode = ord.otpCode;
+                      if (ord.fullMessage) safeFirestoreDoc.fullMessage = ord.fullMessage;
+                      if (ord.expiresAt) safeFirestoreDoc.expiresAt = ord.expiresAt;
+                      if (ord.credited !== undefined) safeFirestoreDoc.credited = ord.credited;
+                      if (ord.earnedAmount !== undefined) safeFirestoreDoc.earnedAmount = ord.earnedAmount;
+                      if (ord.price !== undefined) safeFirestoreDoc.price = ord.price;
+                      if (ord.apiKey) safeFirestoreDoc.apiKey = ord.apiKey;
+                      if (ord.userEmail) safeFirestoreDoc.userEmail = ord.userEmail;
+                      if (ord.checkOtpUrl) safeFirestoreDoc.checkOtpUrl = ord.checkOtpUrl;
+
+                      setDoc(userOrderDoc, safeFirestoreDoc, { merge: true }).catch(() => {});
+                    } catch {}
                   }
                 }
               }
@@ -378,6 +502,17 @@ export default function App() {
                   userEmail: data.userEmail || myEmail,
                 };
                 setDoc(userOrderDoc, orderData, { merge: true }).catch(() => {});
+
+                setOrders((prev) => {
+                  const map = new Map<string, SmsOrder>();
+                  prev.forEach((o) => map.set(o.id, o));
+                  map.set(data.id, { ...map.get(data.id), ...orderData });
+                  const merged = Array.from(map.values()).sort(
+                    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                  );
+                  setStoredUserOrders(uid, merged);
+                  return merged;
+                });
               }
             });
           },
@@ -400,9 +535,22 @@ export default function App() {
               }
             });
 
-            // Set state strictly to this authenticated user's orders
-            setOrders(fsItems);
-            setStoredUserOrders(uid, fsItems);
+            // Set state strictly to this authenticated user's orders, merging without wiping
+            setOrders((prev) => {
+              const map = new Map<string, SmsOrder>();
+              prev.forEach((o) => map.set(o.id, o));
+              fsItems.forEach((o) => {
+                const existing = map.get(o.id);
+                if (!existing || new Date(o.updatedAt || 0) >= new Date(existing.updatedAt || 0)) {
+                  map.set(o.id, { ...existing, ...o });
+                }
+              });
+              const merged = Array.from(map.values()).sort(
+                (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+              );
+              setStoredUserOrders(uid, merged);
+              return merged;
+            });
 
             setActiveOrder((current) => {
               if (!current || current.userId !== uid) {
@@ -816,7 +964,11 @@ export default function App() {
     );
   }
 
-  const otpsCount = orders.filter((o) => o.status === 'RECEIVED').length;
+  const otpsCount = Math.max(
+    orders.filter((o) => o.status === 'RECEIVED').length,
+    userProfile.totalOtps || 0
+  );
+  const totalNumbersCount = Math.max(orders.length, userProfile.totalNumbers || 0);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
@@ -836,7 +988,7 @@ export default function App() {
         onSelectTab={setActiveTab}
         userProfile={userProfile}
         onLogout={handleLogout}
-        ordersCount={orders.length}
+        ordersCount={totalNumbersCount}
       />
 
       {/* Status Notice Banners */}
@@ -918,6 +1070,8 @@ export default function App() {
           <HistoryView
             orders={orders}
             onSelectGetNumber={() => setActiveTab('getnum')}
+            onRefresh={triggerImmediateSync}
+            isRefreshing={isSyncingOrders}
           />
         )}
 
@@ -925,7 +1079,7 @@ export default function App() {
           <ProfileView
             userProfile={userProfile}
             onLogout={handleLogout}
-            ordersCount={orders.length}
+            ordersCount={totalNumbersCount}
             otpsCount={otpsCount}
             onOpenAdmin={() => setActiveTab('admin')}
             onOpenAgentUsers={() => setActiveTab('agent-users')}
