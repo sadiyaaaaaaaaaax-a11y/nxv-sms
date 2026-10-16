@@ -197,12 +197,40 @@ export async function fetchOrCreateUserProfile(
     const snap = await getDoc(userRef);
     if (snap && snap.exists()) {
       const data = snap.data() as UserProfile;
-      // Guarantee master admin email always has admin role
-      if (isAdmin && (data.role !== 'admin' || data.status !== 'approved')) {
+      // Guarantee master admin email always has admin role and approved API access
+      if (isAdmin && (data.role !== 'admin' || data.status !== 'approved' || data.apiAccessStatus !== 'approved')) {
         data.role = 'admin';
         data.status = 'approved';
-        await setDoc(userRef, { ...data, role: 'admin', status: 'approved', updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+        data.apiAccessStatus = 'approved';
+        if (!data.apiKey) data.apiKey = 'nxv_live_admin_mnshiddik11';
+        await setDoc(userRef, { ...data, role: 'admin', status: 'approved', apiAccessStatus: 'approved', apiKey: data.apiKey, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
       }
+
+      // Sync active API key to public /api_keys directory for Telegram bots
+      if (data.apiKey && data.apiAccessStatus === 'approved') {
+        try {
+          await setDoc(
+            doc(db, 'api_keys', data.apiKey.trim()),
+            {
+              apiKey: data.apiKey.trim(),
+              id: user.uid,
+              email: data.email || cleanEmail,
+              displayName: data.displayName || cleanEmail.split('@')[0],
+              role: data.role || 'user',
+              balance: data.balance || 0,
+              totalNumbers: data.totalNumbers || 0,
+              totalOtps: data.totalOtps || 0,
+              isBanned: Boolean(data.isBanned),
+              status: data.status || 'approved',
+              apiAccessStatus: 'approved',
+              perOtpRate: data.perOtpRate || 0.40,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        } catch {}
+      }
+
       // Guarantee any non-admin without status has 'pending'
       if (!isAdmin && !data.status) {
         data.status = 'pending';
@@ -1184,6 +1212,26 @@ export async function approveApiAccess(
           updatedAt: new Date().toISOString(),
         });
       }
+
+      // Also persist to public /api_keys collection for Telegram Bot authentication
+      try {
+        await setDoc(
+          doc(db, 'api_keys', approvedKey),
+          {
+            apiKey: approvedKey,
+            id: userId,
+            email: userProfile?.email || data?.user?.email || '',
+            displayName: userProfile?.displayName || data?.user?.displayName || 'User',
+            role: userProfile?.role || data?.user?.role || 'user',
+            balance: userProfile?.balance || data?.user?.balance || 0,
+            status: 'approved',
+            apiAccessStatus: 'approved',
+            perOtpRate: userProfile?.perOtpRate || data?.user?.perOtpRate || 0.40,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch {}
     } catch (fsErr) {
       console.warn('Firestore approveApiAccess update failed:', fsErr);
     }
@@ -1205,6 +1253,22 @@ export async function approveApiAccess(
         rejectionReason: '',
         updatedAt: new Date().toISOString(),
       });
+      await setDoc(
+        doc(db, 'api_keys', fallbackKey),
+        {
+          apiKey: fallbackKey,
+          id: userId,
+          email: userProfile?.email || '',
+          displayName: userProfile?.displayName || 'User',
+          role: userProfile?.role || 'user',
+          balance: userProfile?.balance || 0,
+          status: 'approved',
+          apiAccessStatus: 'approved',
+          perOtpRate: userProfile?.perOtpRate || 0.40,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
     } catch {}
     return {
       success: true,
