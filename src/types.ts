@@ -29,17 +29,21 @@ export interface ActiveRange {
 export interface SmsOrder {
   id: string;
   userId: string;
+  userEmail?: string;
   phoneNumber: string;
   service: string;
   country: string;
   range: string;
-  price: number;
+  price?: number;
   status: 'WAITING' | 'RECEIVED' | 'EXPIRED' | 'CANCELLED';
   otpCode?: string;
   fullMessage?: string;
   orderRefId?: string;
   credited?: boolean;
   earnedAmount?: number;
+  apiKey?: string;
+  source?: 'api' | 'web';
+  checkOtpUrl?: string;
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
