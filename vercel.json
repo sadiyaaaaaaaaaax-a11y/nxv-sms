@@ -2,8 +2,44 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/get-number(.*)",
+      "destination": "/api/get-number"
+    },
+    {
+      "source": "/get-otp(.*)",
+      "destination": "/api/get-otp"
+    },
+    {
+      "source": "/active-range(.*)",
+      "destination": "/api/active-rangre"
+    },
+    {
+      "source": "/active-ranges(.*)",
+      "destination": "/api/active-rangre"
+    },
+    {
+      "source": "/active-rangre(.*)",
+      "destination": "/api/active-rangre"
+    },
+    {
+      "source": "/cancel-number(.*)",
+      "destination": "/api/cancel-number"
+    },
+    {
+      "source": "/balance(.*)",
+      "destination": "/api/balance"
+    },
+    {
+      "source": "/stats(.*)",
+      "destination": "/api/stats"
+    },
+    {
+      "source": "/country-stats(.*)",
+      "destination": "/api/country-stats"
+    },
+    {
       "source": "/api/(.*)",
-      "destination": "/api/index.js"
+      "destination": "/api/$1"
     },
     {
       "source": "/(.*)",
