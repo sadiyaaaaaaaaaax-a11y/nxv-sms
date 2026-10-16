@@ -87,6 +87,11 @@ export default function App() {
     }
   });
 
+  const profileRef = useRef<UserProfile | null>(userProfile);
+  useEffect(() => {
+    profileRef.current = userProfile;
+  }, [userProfile]);
+
   // User-isolated Orders State: Load ONLY this logged-in user's stored orders
   const [orders, setOrders] = useState<SmsOrder[]>(() => {
     try {
@@ -188,6 +193,7 @@ export default function App() {
   // 2. Firebase Auth Listener & STRICT User Isolation for Firestore Orders
   useEffect(() => {
     let unsubOrders: (() => void) | null = null;
+    let unsubApiOrders: (() => void) | null = null;
     let unsubProfile: (() => void) | null = null;
     let serverProfileTimer: any = null;
 
@@ -195,6 +201,10 @@ export default function App() {
       if (unsubOrders) {
         unsubOrders();
         unsubOrders = null;
+      }
+      if (unsubApiOrders) {
+        unsubApiOrders();
+        unsubApiOrders = null;
       }
       if (unsubProfile) {
         unsubProfile();
@@ -312,8 +322,8 @@ export default function App() {
             }
 
             // Sync Telegram bot / external API orders into user's private Firestore subcollection & History
-            const curApiKey = userProfile?.apiKey || '';
-            const curEmail = userProfile?.email || firebaseUser?.email || '';
+            const curApiKey = profileRef.current?.apiKey || '';
+            const curEmail = (profileRef.current?.email || firebaseUser?.email || '').toLowerCase();
             const ordersRes = await fetch(
               `/api/users/orders?userId=${encodeURIComponent(uid)}&apiKey=${encodeURIComponent(curApiKey)}&email=${encodeURIComponent(curEmail)}`
             );
@@ -325,7 +335,7 @@ export default function App() {
                     const isMyOrder =
                       ord.userId === uid ||
                       (curApiKey && (ord.apiKey === curApiKey || ord.checkOtpUrl?.includes(curApiKey))) ||
-                      (curEmail && ord.userEmail && ord.userEmail.toLowerCase() === curEmail.toLowerCase());
+                      (curEmail && ord.userEmail && ord.userEmail.toLowerCase() === curEmail);
 
                     if (isMyOrder) {
                       const userOrderDoc = doc(db, 'users', uid, 'smsOrders', ord.id);
@@ -344,6 +354,37 @@ export default function App() {
         };
         fetchServerProfile();
         serverProfileTimer = setInterval(fetchServerProfile, 3000);
+
+        // Real-time listener on public api_orders so Telegram bot numbers pop up immediately in web history
+        const apiOrdersRef = collection(db, 'api_orders');
+        unsubApiOrders = onSnapshot(
+          apiOrdersRef,
+          (snapshot) => {
+            snapshot.forEach((d) => {
+              const data = d.data() as SmsOrder;
+              const myApiKey = profileRef.current?.apiKey || '';
+              const myEmail = (profileRef.current?.email || firebaseUser.email || '').toLowerCase();
+              if (
+                data &&
+                data.id &&
+                (data.userId === uid ||
+                  (myApiKey && data.apiKey === myApiKey) ||
+                  (myEmail && data.userEmail && data.userEmail.toLowerCase() === myEmail))
+              ) {
+                const userOrderDoc = doc(db, 'users', uid, 'smsOrders', data.id);
+                const orderData = {
+                  ...data,
+                  userId: uid,
+                  userEmail: data.userEmail || myEmail,
+                };
+                setDoc(userOrderDoc, orderData, { merge: true }).catch(() => {});
+              }
+            });
+          },
+          (err) => {
+            console.warn('api_orders snapshot error:', err);
+          }
+        );
 
         // Strictly listen to THIS user's private subcollection in Firestore
         const ordersRef = collection(db, 'users', uid, 'smsOrders');
@@ -411,6 +452,7 @@ export default function App() {
     return () => {
       unsubscribe();
       if (unsubOrders) unsubOrders();
+      if (unsubApiOrders) unsubApiOrders();
       if (unsubProfile) unsubProfile();
       if (serverProfileTimer) clearInterval(serverProfileTimer);
     };
