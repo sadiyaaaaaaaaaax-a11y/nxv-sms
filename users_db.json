@@ -5,11 +5,11 @@
     "displayName": "admin",
     "role": "admin",
     "balance": 100,
-    "totalNumbers": 0,
+    "totalNumbers": 4,
     "totalOtps": 0,
     "isBanned": false,
     "createdAt": "2026-10-12T17:25:29.746Z",
-    "updatedAt": "2026-10-14T13:23:03.130Z",
+    "updatedAt": "2026-10-16T16:23:42.976Z",
     "agentEmail": "",
     "status": "approved",
     "perOtpRate": 0.3,
@@ -17,7 +17,8 @@
     "apiKey": "nxv_live_mv5kuqto_b6dngqj4ktmaeehq",
     "apiRequestDate": "2026-10-12T18:19:34.890Z",
     "apiRequestReason": "Telegram Bot & SMS Integration",
-    "apiAccessStatus": "approved"
+    "apiAccessStatus": "approved",
+    "apiHits": 3
   },
   {
     "id": "n25GMANEFEbIBuvkrMTclCWXTR52",
@@ -62,5 +63,44 @@
     "rejectionReason": "",
     "createdAt": "2026-10-14T13:20:41.504Z",
     "updatedAt": "2026-10-14T13:20:45.512Z"
+  },
+  {
+    "id": "8SkI4MHsSNV4vUs0hBj4OPk1nCB2",
+    "email": "mnshiddik11009@gmail.com",
+    "displayName": "mm",
+    "role": "user",
+    "balance": 0,
+    "totalNumbers": 0,
+    "totalOtps": 0,
+    "isBanned": false,
+    "banReason": "",
+    "agentEmail": "mnshiddik1100@gmail.com",
+    "status": "approved",
+    "perOtpRate": 0.5,
+    "apiKey": "",
+    "apiAccessStatus": "none",
+    "apiHits": 0,
+    "apiRequestReason": "",
+    "apiRequestDate": "",
+    "rejectionReason": "",
+    "createdAt": "2026-10-14T13:53:06.211Z",
+    "updatedAt": "2026-10-15T15:48:12.494Z"
+  },
+  {
+    "id": "admin_mnshiddik11",
+    "email": "mnshiddik11@gmail.com",
+    "displayName": "Master Admin",
+    "role": "admin",
+    "balance": 100,
+    "totalNumbers": 1,
+    "totalOtps": 0,
+    "isBanned": false,
+    "status": "approved",
+    "apiAccessStatus": "approved",
+    "apiKey": "nxv_live_admin_mnshiddik11",
+    "perOtpRate": 0.4,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-10-15T16:16:44.822Z",
+    "apiHits": 4
   }
 ]
