@@ -35,6 +35,35 @@ function persistStoredOrders(orders) {
   } catch {}
 }
 
+function loadStoredUsers() {
+  try {
+    if (fs.existsSync('/tmp/users_db.json')) {
+      const data = fs.readFileSync('/tmp/users_db.json', 'utf-8');
+      const list = JSON.parse(data);
+      if (Array.isArray(list) && list.length > 0) return list;
+    }
+  } catch {}
+  try {
+    const p = path.resolve(process.cwd(), 'users_db.json');
+    if (fs.existsSync(p)) {
+      const data = fs.readFileSync(p, 'utf-8');
+      const list = JSON.parse(data);
+      if (Array.isArray(list) && list.length > 0) return list;
+    }
+  } catch {}
+  return [];
+}
+
+function persistStoredUsers(users) {
+  try {
+    fs.writeFileSync('/tmp/users_db.json', JSON.stringify(users || [], null, 2), 'utf-8');
+  } catch {}
+  try {
+    const p = path.resolve(process.cwd(), 'users_db.json');
+    fs.writeFileSync(p, JSON.stringify(users || [], null, 2), 'utf-8');
+  } catch {}
+}
+
 function getZenexHeaders(isJson = false) {
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -82,25 +111,30 @@ async function authenticateApiKey(req, url, body) {
     };
   }
 
-  if (!global._nxvUsersStore) {
-    global._nxvUsersStore = [
-      {
-        id: 'admin_mnshiddik11',
-        email: 'mnshiddik11@gmail.com',
-        displayName: 'Master Admin',
-        role: 'admin',
-        balance: 100.0,
-        totalNumbers: 0,
-        totalOtps: 0,
-        isBanned: false,
-        status: 'approved',
-        apiAccessStatus: 'approved',
-        apiKey: 'nxv_live_admin_mnshiddik11',
-        perOtpRate: 0.40,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: new Date().toISOString(),
-      },
-    ];
+  if (!global._nxvUsersStore || global._nxvUsersStore.length === 0) {
+    const loadedUsers = loadStoredUsers();
+    if (loadedUsers.length > 0) {
+      global._nxvUsersStore = loadedUsers;
+    } else {
+      global._nxvUsersStore = [
+        {
+          id: 'admin_mnshiddik11',
+          email: 'mnshiddik11@gmail.com',
+          displayName: 'Master Admin',
+          role: 'admin',
+          balance: 100.0,
+          totalNumbers: 0,
+          totalOtps: 0,
+          isBanned: false,
+          status: 'approved',
+          apiAccessStatus: 'approved',
+          apiKey: 'nxv_live_admin_mnshiddik11',
+          perOtpRate: 0.40,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+    }
   }
 
   // 1. Search in-memory store
@@ -320,6 +354,7 @@ export default async function handler(req, res, overrideEndpoint) {
     global._nxvOrdersStore.unshift(newOrder);
     persistStoredOrders(global._nxvOrdersStore);
     user.totalNumbers = (user.totalNumbers || 0) + 1;
+    persistStoredUsers(global._nxvUsersStore);
 
     // Immediately persist order to Firestore api_orders for instant cross-device/bot sync
     try {
@@ -496,6 +531,7 @@ export default async function handler(req, res, overrideEndpoint) {
           user.balance = Number(((user.balance || 0) + earnedRate).toFixed(2));
           user.totalOtps = (user.totalOtps || 0) + 1;
           user.updatedAt = new Date().toISOString();
+          persistStoredUsers(global._nxvUsersStore);
 
           order.status = 'RECEIVED';
           order.otpCode = matchedOtpCode;
@@ -732,15 +768,28 @@ export default async function handler(req, res, overrideEndpoint) {
       // Ignore network errors
     }
 
-    if (userId || apiKey || email) {
+    if (!global._nxvUsersStore || global._nxvUsersStore.length === 0) {
+      global._nxvUsersStore = loadStoredUsers();
+    }
+    const matchedUser = (global._nxvUsersStore || []).find(
+      (u) =>
+        (userId && u.id === userId) ||
+        (apiKey && u.apiKey === apiKey) ||
+        (email && u.email && u.email.toLowerCase() === email)
+    );
+    const userApiKey = matchedUser?.apiKey || apiKey;
+    const userEmail = matchedUser?.email?.toLowerCase() || email;
+    const targetUid = matchedUser?.id || userId;
+
+    if (targetUid || userApiKey || userEmail) {
       orders = orders.filter((o) => {
-        if (apiKey && (o.apiKey === apiKey || (o.checkOtpUrl && o.checkOtpUrl.includes(apiKey)))) {
+        if (userApiKey && (o.apiKey === userApiKey || (o.checkOtpUrl && o.checkOtpUrl.includes(userApiKey)))) {
           return true;
         }
-        if (userId && (o.userId === userId || o.userId === `usr_api_${apiKey.slice(9, 17)}`)) {
+        if (targetUid && (o.userId === targetUid || (userApiKey && o.userId === `usr_api_${userApiKey.slice(9, 17)}`))) {
           return true;
         }
-        if (email && o.userEmail && o.userEmail.toLowerCase() === email) {
+        if (userEmail && o.userEmail && o.userEmail.toLowerCase() === userEmail) {
           return true;
         }
         return false;
