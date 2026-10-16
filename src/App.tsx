@@ -290,7 +290,7 @@ export default function App() {
           }
         });
 
-        // Fast periodic poll of backend user profile to ensure immediate sync of admin API approvals
+        // Fast periodic poll of backend user profile & orders to ensure immediate sync of admin API approvals & Telegram bot numbers
         const fetchServerProfile = async () => {
           try {
             const queryKey = encodeURIComponent(uid || firebaseUser.email || '');
@@ -308,6 +308,36 @@ export default function App() {
                     apiHits: typeof resJson.user.apiHits === 'number' ? resJson.user.apiHits : prev.apiHits,
                   };
                 });
+              }
+            }
+
+            // Sync Telegram bot / external API orders into user's private Firestore subcollection & History
+            const curApiKey = userProfile?.apiKey || '';
+            const curEmail = userProfile?.email || firebaseUser?.email || '';
+            const ordersRes = await fetch(
+              `/api/users/orders?userId=${encodeURIComponent(uid)}&apiKey=${encodeURIComponent(curApiKey)}&email=${encodeURIComponent(curEmail)}`
+            );
+            if (ordersRes.ok) {
+              const oJson = await ordersRes.json();
+              if (oJson.success && Array.isArray(oJson.orders) && oJson.orders.length > 0) {
+                for (const ord of oJson.orders) {
+                  if (ord && ord.id) {
+                    const isMyOrder =
+                      ord.userId === uid ||
+                      (curApiKey && (ord.apiKey === curApiKey || ord.checkOtpUrl?.includes(curApiKey))) ||
+                      (curEmail && ord.userEmail && ord.userEmail.toLowerCase() === curEmail.toLowerCase());
+
+                    if (isMyOrder) {
+                      const userOrderDoc = doc(db, 'users', uid, 'smsOrders', ord.id);
+                      const syncedOrder = {
+                        ...ord,
+                        userId: uid,
+                        userEmail: ord.userEmail || curEmail,
+                      };
+                      setDoc(userOrderDoc, syncedOrder, { merge: true }).catch(() => {});
+                    }
+                  }
+                }
               }
             }
           } catch {}
